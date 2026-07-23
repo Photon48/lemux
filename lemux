@@ -1,0 +1,302 @@
+#!/usr/bin/env bash
+# lemux — a tmux-native, node-based navigator for branched Claude Code sessions.
+# Branch from a highlighted excerpt, wander deep, jump around, delete side quests.
+set -euo pipefail
+
+SELF="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/$(basename "${BASH_SOURCE[0]}")"
+LEMUX_DIR="${LEMUX_DIR:-$HOME/.lemux}"
+TREE="$LEMUX_DIR/tree.json"
+CLAUDE_BIN="${LEMUX_CLAUDE:-$(command -v claude || echo "$HOME/.local/bin/claude")}"
+CLAUDE_PROJECTS="$HOME/.claude/projects"
+
+# ---------- helpers ----------
+
+die() {
+  echo "lemux: $*" >&2
+  [[ -n "${TMUX:-}" ]] && tmux display-message "lemux: $*" || true
+  exit 1
+}
+
+init_state() {
+  mkdir -p "$LEMUX_DIR"
+  [[ -f "$TREE" ]] || echo '[]' >"$TREE"
+}
+
+munge() { printf '%s' "$1" | sed 's/[^A-Za-z0-9]/-/g'; }
+
+new_uuid() { uuidgen | tr '[:upper:]' '[:lower:]'; }
+
+jq_update() {
+  local tmp
+  tmp=$(mktemp "$LEMUX_DIR/.tree.XXXXXX")
+  jq "$@" "$TREE" >"$tmp" && mv "$tmp" "$TREE"
+}
+
+node_field() { jq -r --arg id "$1" ".[] | select(.id==\$id) | .$2 // \"\"" "$TREE"; }
+
+add_node() { # id parent name excerpt dir
+  jq_update --arg id "$1" --arg parent "$2" --arg name "$3" \
+    --arg excerpt "$4" --arg dir "$5" --argjson created "$(date +%s)" \
+    '. + [{id:$id, parent:$parent, name:$name, excerpt:$excerpt, dir:$dir,
+           created:$created, window:"", pane:""}]'
+}
+
+window_alive() {
+  [[ -n "$1" ]] && tmux list-windows -a -F '#{window_id}' 2>/dev/null | grep -qx "$1"
+}
+
+session_file() { # id dir
+  printf '%s/%s/%s.jsonl' "$CLAUDE_PROJECTS" "$(munge "$2")" "$1"
+}
+
+collapse_ws() { tr '\n\t\r' '   ' | sed -E 's/ +/ /g; s/^ //; s/ $//'; }
+
+# ---------- commands ----------
+
+cmd_start() { # [name] — start a tracked root claude session in the current pane
+  [[ -n "${TMUX:-}" ]] || die "start must be run inside tmux"
+  init_state
+  local name="${1:-$(basename "$PWD")}" id
+  id=$(new_uuid)
+  add_node "$id" "" "$name" "" "$PWD"
+  tmux rename-window "$name"
+  exec "$SELF" _run "$id" "$PWD" new
+}
+
+cmd_branch() { # <pane_id>  (excerpt on stdin) — fork the pane's session
+  init_state
+  local pane="${1:?usage: lemux branch <pane_id>}" excerpt parent dir id name
+  excerpt=$(collapse_ws)
+  [[ -n "$excerpt" ]] || die "empty selection — highlight text in copy-mode first"
+  parent=$(tmux display-message -t "$pane" -p '#{@lemux_session}' 2>/dev/null || true)
+  [[ -n "$parent" ]] || die "this pane is not a lemux session (start one with: lemux start)"
+  dir=$(node_field "$parent" dir)
+  [[ -n "$dir" ]] || die "unknown parent session $parent"
+  [[ -f "$(session_file "$parent" "$dir")" ]] || die "nothing to branch yet — send at least one message first"
+
+  id=$(new_uuid)
+  name=$(printf '%s' "$excerpt" | cut -c1-24)
+  add_node "$id" "$parent" "$name" "$excerpt" "$dir"
+
+  local newpane
+  newpane=$(tmux new-window -c "$dir" -n "$name" -P -F '#{pane_id}' \
+    "exec $(printf '%q' "$SELF") _run $(printf '%q' "$id") $(printf '%q' "$dir") fork $(printf '%q' "$parent")")
+
+  # Pre-fill the excerpt into the fork's input box once claude has rendered.
+  local prefill
+  prefill="Re \"$(printf '%s' "$excerpt" | cut -c1-400)\": "
+  (
+    for _ in $(seq 1 60); do
+      sleep 0.25
+      local n
+      n=$(tmux capture-pane -p -t "$newpane" 2>/dev/null | grep -c '[^[:space:]]' || true)
+      [[ "${n:-0}" -ge 4 ]] && break
+    done
+    sleep 1.5
+    tmux send-keys -t "$newpane" -l -- "$prefill" 2>/dev/null || true
+  ) &
+}
+
+cmd__run() { # id dir mode [parent] — wrapper that tags the pane and execs claude
+  local id="$1" dir="$2" mode="$3" parent="${4:-}"
+  cd "$dir"
+  tmux set-option -p @lemux_session "$id"
+  tmux set-option -p remain-on-exit failed 2>/dev/null || true
+  jq_update --arg id "$id" \
+    --arg win "$(tmux display-message -p '#{window_id}')" \
+    --arg pane "${TMUX_PANE:-}" \
+    'map(if .id==$id then .window=$win | .pane=$pane else . end)'
+  case "$mode" in
+    new)    exec "$CLAUDE_BIN" --session-id "$id" ;;
+    fork)   exec "$CLAUDE_BIN" --resume "$parent" --fork-session --session-id "$id" ;;
+    revive) exec "$CLAUDE_BIN" --resume "$id" ;;
+    *)      die "unknown run mode: $mode" ;;
+  esac
+}
+
+cmd__list() { # tab-separated: id <TAB> rendered tree line
+  init_state
+  local r
+  for r in $(jq -r '[.[] | select(.parent=="")] | sort_by(.created) | .[].id' "$TREE"); do
+    _walk "$r" "" root
+  done
+}
+
+_walk() { # id prefix position(root|mid|last)
+  local id="$1" prefix="$2" pos="$3" glyph=""
+  local child_prefix="$prefix"
+  case "$pos" in
+    mid)  glyph="├─ "; child_prefix="${prefix}│  " ;;
+    last) glyph="└─ "; child_prefix="${prefix}   " ;;
+  esac
+  local status="○"
+  window_alive "$(node_field "$id" window)" && status="●"
+  printf '%s\t%s%s%s %s\n' "$id" "$prefix" "$glyph" "$status" "$(node_field "$id" name)"
+  local kids i n
+  kids=($(jq -r --arg id "$id" '[.[] | select(.parent==$id)] | sort_by(.created) | .[].id' "$TREE"))
+  n=${#kids[@]}
+  for ((i = 0; i < n; i++)); do
+    if ((i == n - 1)); then _walk "${kids[$i]}" "$child_prefix" last
+    else _walk "${kids[$i]}" "$child_prefix" mid; fi
+  done
+}
+
+cmd_tree() { # fzf navigator: enter jumps, ctrl-x deletes
+  init_state
+  [[ "$(jq length "$TREE")" -gt 0 ]] || die "no sessions yet — run: lemux start"
+  local q self out
+  self=$(printf '%q' "$SELF")
+  out=$(cmd__list | fzf --delimiter='\t' --with-nth=2 --no-sort --layout=reverse \
+    --prompt='lemux> ' \
+    --header='enter: jump · ctrl-x: delete branch · esc: close' \
+    --preview="$self _preview {1}" --preview-window=right,55%,wrap \
+    --bind="ctrl-x:execute-silent($self rm {1})+reload($self _list)") || return 0
+  cmd_jump "${out%%$'\t'*}"
+}
+
+cmd_jump() { # id — focus the branch's window, reviving it if closed
+  local id="${1:?usage: lemux jump <id>}" win
+  win=$(node_field "$id" window)
+  if window_alive "$win"; then
+    tmux select-window -t "$win"
+  else
+    local dir name
+    dir=$(node_field "$id" dir)
+    name=$(node_field "$id" name)
+    [[ -n "$dir" ]] || die "unknown session $id"
+    tmux new-window -c "$dir" -n "$name" \
+      "exec $(printf '%q' "$SELF") _run $(printf '%q' "$id") $(printf '%q' "$dir") revive"
+  fi
+}
+
+cmd_rm() { # [--force] <id> | [--force] --pane <pane_id> — delete branch + subtree
+  init_state
+  local force=0 id=""
+  while (($#)); do
+    case "$1" in
+      --force) force=1 ;;
+      --pane)  shift; id=$(tmux display-message -t "${1:?}" -p '#{@lemux_session}' 2>/dev/null || true) ;;
+      *)       id="$1" ;;
+    esac
+    shift
+  done
+  [[ -n "$id" ]] || die "usage: lemux rm [--force] <id | --pane <pane_id>>"
+  [[ -n "$(node_field "$id" name)" ]] || die "unknown session $id"
+
+  if [[ -z "$(node_field "$id" parent)" && $force -eq 0 ]]; then
+    die "refusing to delete a root session (use --force to remove it from lemux; its transcript is kept)"
+  fi
+
+  # Collect the subtree (BFS).
+  local ids=("$id") frontier=("$id")
+  while ((${#frontier[@]})); do
+    local next=()
+    local p
+    for p in "${frontier[@]}"; do
+      local kids
+      kids=($(jq -r --arg id "$p" '.[] | select(.parent==$id) | .id' "$TREE"))
+      ((${#kids[@]})) && next+=("${kids[@]}")
+    done
+    ((${#next[@]})) && ids+=("${next[@]}")
+    frontier=("${next[@]:-}")
+    [[ -z "${frontier[0]:-}" ]] && frontier=()
+  done
+
+  local n root_parent
+  root_parent=$(node_field "$id" parent)
+  for n in "${ids[@]}"; do
+    local win dir
+    win=$(node_field "$n" window)
+    window_alive "$win" && tmux kill-window -t "$win" 2>/dev/null || true
+    # Root transcripts are never auto-deleted; branch transcripts are.
+    if ! { [[ "$n" == "$id" ]] && [[ -z "$root_parent" ]]; }; then
+      dir=$(node_field "$n" dir)
+      rm -f "$(session_file "$n" "$dir")"
+    fi
+  done
+  local json_ids
+  json_ids=$(printf '%s\n' "${ids[@]}" | jq -R . | jq -s .)
+  jq_update --argjson dead "$json_ids" 'map(select(.id as $i | $dead | index($i) | not))'
+}
+
+cmd__preview() { # id — branch info + transcript tail, for the fzf preview pane
+  init_state
+  local id="${1:?}" name excerpt dir file
+  name=$(node_field "$id" name)
+  excerpt=$(node_field "$id" excerpt)
+  dir=$(node_field "$id" dir)
+  printf '%s\n' "$name"
+  printf 'session %s\n' "$id"
+  if [[ -n "$excerpt" ]]; then
+    printf '\nbranched on:\n"%s"\n' "$excerpt"
+  fi
+  printf '\n─────────────────────────\n'
+  file=$(session_file "$id" "$dir")
+  if [[ ! -f "$file" ]]; then
+    printf '(no messages yet)\n'
+    return 0
+  fi
+  tail -n 400 "$file" | jq -r '
+    select(.type=="user" or .type=="assistant")
+    | {p: (if .type=="user" then "you ▸ " else "claude ▸ " end), c: (.message.content // "")}
+    | .c = (if (.c|type)=="string" then .c
+            elif (.c|type)=="array" then ([.c[] | select(type=="object" and .type=="text") | .text] | join(" "))
+            else "" end)
+    | select(.c != "")
+    | .p + (.c | gsub("\\s+"; " ") | .[0:400])
+  ' 2>/dev/null | tail -n 14 || printf '(could not parse transcript)\n'
+}
+
+cmd_ls() { cmd__list | cut -f2-; }
+
+cmd_init() { # print tmux keybindings (absolute paths — PATH-proof)
+  local self
+  self=$(printf '%q' "$SELF")
+  cat <<EOF
+
+# >>> lemux >>>
+# prefix + T          open the branch tree navigator
+# prefix + X          delete the current pane's branch (+ subtree)
+# copy-mode, B        branch: fork this session seeded with the selection
+bind-key T display-popup -E -w 85% -h 70% "$self tree"
+bind-key X confirm-before -p "lemux: delete this branch and its subtree? (y/n)" "run-shell \"$self rm --pane '#{pane_id}'\""
+bind-key -T copy-mode-vi B send-keys -X copy-pipe-and-cancel "$self branch '#{pane_id}'"
+bind-key -T copy-mode    B send-keys -X copy-pipe-and-cancel "$self branch '#{pane_id}'"
+# <<< lemux <<<
+EOF
+}
+
+cmd_help() {
+  cat <<'EOF'
+lemux — tmux-native navigator for branched Claude Code sessions
+
+  lemux start [name]     start a tracked root claude session in this pane
+  lemux tree             fzf tree navigator (enter: jump, ctrl-x: delete)
+  lemux ls               print the tree
+  lemux branch <pane>    fork the pane's session (excerpt on stdin)
+  lemux jump <id>        focus a branch, reviving its window if closed
+  lemux rm <id>          delete a branch + its subtree (transcripts too)
+  lemux init             print tmux keybindings (append to ~/.tmux.conf)
+
+Typical flow: lemux start → chat → copy-mode, highlight text, press B →
+side quest opens as a fork with full parent context → prefix+T to jump
+around → prefix+X to throw a side quest away.
+EOF
+}
+
+# ---------- dispatch ----------
+
+case "${1:-help}" in
+  start)    shift; cmd_start "$@" ;;
+  branch)   shift; cmd_branch "$@" ;;
+  tree)     shift; cmd_tree "$@" ;;
+  jump)     shift; cmd_jump "$@" ;;
+  rm)       shift; cmd_rm "$@" ;;
+  ls)       shift; cmd_ls "$@" ;;
+  init)     shift; cmd_init "$@" ;;
+  _list)    shift; cmd__list "$@" ;;
+  _preview) shift; cmd__preview "$@" ;;
+  _run)     shift; cmd__run "$@" ;;
+  help|-h|--help) cmd_help ;;
+  *) die "unknown command: $1 (try: lemux help)" ;;
+esac
