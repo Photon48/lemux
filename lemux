@@ -51,6 +51,51 @@ session_file() { # id dir
 
 collapse_ws() { tr '\n\t\r' '   ' | sed -E 's/ +/ /g; s/^ //; s/ $//'; }
 
+# Whatever the user last selected: system clipboard first (macOS mouse
+# selection + cmd-C), then tmux's own paste buffer (tmux copy-mode / mouse).
+get_clip() {
+  local t=""
+  if command -v pbpaste >/dev/null 2>&1; then t=$(pbpaste 2>/dev/null || true); fi
+  if [[ -z "${t//[[:space:]]/}" ]]; then t=$(tmux show-buffer 2>/dev/null || true); fi
+  printf '%s' "$t"
+}
+
+# die, but visibly — inside a popup, stderr vanishes the instant we exit.
+popup_die() {
+  printf '\n  \033[1mlemux:\033[0m %s\n\n  press any key…' "$*"
+  read -n 1 -s -r </dev/tty 2>/dev/null || sleep 3
+  exit 1
+}
+
+# Type text into a freshly spawned claude pane once its UI has rendered.
+# The typist is handed to the tmux server so it outlives us — we're usually
+# a popup that closes the moment this returns. The text goes via a file so
+# tmux's format expansion can't mangle a '#' in the excerpt.
+_prefill() { # pane text submit(0|1)
+  local pane="$1" text="$2" submit="$3" f
+  f=$(mktemp "$LEMUX_DIR/.seed.XXXXXX")
+  printf '%s' "$text" >"$f"
+  tmux run-shell -b "$(printf '%q' "$SELF") _type $(printf '%q' "$pane") $(printf '%q' "$f") $submit"
+}
+
+cmd__type() { # pane seedfile submit — wait for claude's input box, then type
+  local pane="$1" seedfile="$2" submit="$3" i out text
+  text=$(cat "$seedfile" 2>/dev/null || true)
+  rm -f "$seedfile"
+  [[ -n "$text" ]] || return 0
+  for i in $(seq 1 120); do
+    sleep 0.25
+    out=$(tmux capture-pane -p -t "$pane" 2>/dev/null || true)
+    case "$out" in *"for shortcuts"*) break ;; esac
+  done
+  sleep 0.8
+  tmux send-keys -t "$pane" -l -- "$text" 2>/dev/null || true
+  if [[ "$submit" == 1 ]]; then
+    sleep 0.5
+    tmux send-keys -t "$pane" Enter 2>/dev/null || true
+  fi
+}
+
 # ---------- commands ----------
 
 cmd_start() { # [name] — start a tracked root claude session in the current pane
@@ -63,11 +108,23 @@ cmd_start() { # [name] — start a tracked root claude session in the current pa
   exec "$SELF" _run "$id" "$PWD" new
 }
 
-cmd_branch() { # <pane_id>  (excerpt on stdin) — fork the pane's session
+cmd_branch() { # <pane_id> [--text <excerpt>] [--ask <question>] — fork the pane's session
   init_state
-  local pane="${1:?usage: lemux branch <pane_id>}" excerpt parent dir id name
-  excerpt=$(collapse_ws)
-  [[ -n "$excerpt" ]] || die "empty selection — highlight text in copy-mode first"
+  local pane excerpt="" question="" have_text=0
+  pane="${1:?usage: lemux branch <pane_id> [--text <excerpt>] [--ask <question>]}"
+  shift
+  while (($#)); do
+    case "$1" in
+      --text) shift; excerpt=$(printf '%s' "${1:-}" | collapse_ws); have_text=1 ;;
+      --ask)  shift; question=$(printf '%s' "${1:-}" | collapse_ws) ;;
+      *)      die "branch: unexpected argument: $1" ;;
+    esac
+    shift
+  done
+  ((have_text)) || excerpt=$(collapse_ws)   # otherwise the excerpt arrives on stdin
+  [[ -n "$excerpt$question" ]] || die "nothing to branch on — select some text and copy it first"
+
+  local parent dir id name
   parent=$(tmux display-message -t "$pane" -p '#{@lemux_session}' 2>/dev/null || true)
   [[ -n "$parent" ]] || die "this pane is not a lemux session (start one with: lemux start)"
   dir=$(node_field "$parent" dir)
@@ -75,26 +132,52 @@ cmd_branch() { # <pane_id>  (excerpt on stdin) — fork the pane's session
   [[ -f "$(session_file "$parent" "$dir")" ]] || die "nothing to branch yet — send at least one message first"
 
   id=$(new_uuid)
-  name=$(printf '%s' "$excerpt" | cut -c1-24)
+  name=$(printf '%s' "${question:-$excerpt}" | cut -c1-28 | tr -cd '[:print:]' | sed -E 's/^ +| +$//g')
+  [[ -n "$name" ]] || name="branch"
   add_node "$id" "$parent" "$name" "$excerpt" "$dir"
 
   local newpane
   newpane=$(tmux new-window -c "$dir" -n "$name" -P -F '#{pane_id}' \
     "exec $(printf '%q' "$SELF") _run $(printf '%q' "$id") $(printf '%q' "$dir") fork $(printf '%q' "$parent")")
 
-  # Pre-fill the excerpt into the fork's input box once claude has rendered.
-  local prefill
-  prefill="Re \"$(printf '%s' "$excerpt" | cut -c1-400)\": "
-  (
-    for _ in $(seq 1 60); do
-      sleep 0.25
-      local n
-      n=$(tmux capture-pane -p -t "$newpane" 2>/dev/null | grep -c '[^[:space:]]' || true)
-      [[ "${n:-0}" -ge 4 ]] && break
-    done
-    sleep 1.5
-    tmux send-keys -t "$newpane" -l -- "$prefill" 2>/dev/null || true
-  ) &
+  # Seed the fork's input box. With a question we submit it; without one we
+  # leave the excerpt sitting there for you to type after.
+  local seed submit
+  if [[ -n "$excerpt" ]]; then
+    seed="Re \"$(printf '%s' "$excerpt" | cut -c1-600)\": $question"
+  else
+    seed="$question"
+  fi
+  [[ -n "$question" ]] && submit=1 || submit=0
+  _prefill "$newpane" "$seed" "$submit"
+}
+
+cmd_ask() { # <pane_id> — popup: confirm the copied excerpt, type a question, branch
+  init_state
+  local pane="${1:?usage: lemux ask <pane_id>}" parent dir excerpt question shown
+  parent=$(tmux display-message -t "$pane" -p '#{@lemux_session}' 2>/dev/null || true)
+  [[ -n "$parent" ]] || popup_die "this pane is not a lemux session — start one with: lemux start"
+  dir=$(node_field "$parent" dir)
+  [[ -n "$dir" ]] || popup_die "unknown parent session"
+  [[ -f "$(session_file "$parent" "$dir")" ]] || popup_die "nothing to branch yet — send at least one message first"
+
+  excerpt=$(get_clip | collapse_ws)
+  printf '\n  \033[1mbranch a side quest\033[0m  \033[2m(from %s)\033[0m\n\n' "$(node_field "$parent" name)"
+  if [[ -n "$excerpt" ]]; then
+    shown=$(printf '%s' "$excerpt" | cut -c1-240)
+    [[ "${#excerpt}" -gt 240 ]] && shown="$shown…"
+    printf '  \033[2mon\033[0m "%s"\n' "$shown"
+  else
+    printf '  \033[2mnothing copied — the branch will start from your question alone\033[0m\n'
+  fi
+  printf '\n  \033[2mtype your question and hit enter · empty enter opens the branch so you\n  can type there · ctrl-c cancels\033[0m\n\n'
+  read -e -r -p "  > " question || { printf '\n  cancelled\n'; return 0; }
+  cmd_branch "$pane" --text "$excerpt" --ask "$question"
+}
+
+cmd__askpopup() { # <pane_id> — open the branch popup (called from the tmux binding)
+  tmux display-popup -E -w 78% -h 45% \
+    "$(printf '%q' "$SELF") ask $(printf '%q' "${1:?}")"
 }
 
 cmd__run() { # id dir mode [parent] — wrapper that tags the pane and execs claude
@@ -255,13 +338,19 @@ cmd_init() { # print tmux keybindings (absolute paths — PATH-proof)
   cat <<EOF
 
 # >>> lemux >>>
+# prefix + B          branch on the text you just copied (select + cmd-C first)
 # prefix + T          open the branch tree navigator
 # prefix + X          delete the current pane's branch (+ subtree)
-# copy-mode, B        branch: fork this session seeded with the selection
+# copy-mode, B        branch straight from a keyboard selection
+bind-key B run-shell "$self _askpopup '#{pane_id}'"
 bind-key T display-popup -E -w 85% -h 70% "$self tree"
 bind-key X confirm-before -p "lemux: delete this branch and its subtree? (y/n)" "run-shell \"$self rm --pane '#{pane_id}'\""
 bind-key -T copy-mode-vi B send-keys -X copy-pipe-and-cancel "$self branch '#{pane_id}'"
 bind-key -T copy-mode    B send-keys -X copy-pipe-and-cancel "$self branch '#{pane_id}'"
+# Uncomment for tmux-native mouse selection (drag to select copies straight to
+# the buffer, so prefix+B works without cmd-C — but the wheel then scrolls
+# into copy-mode instead of your terminal's scrollback):
+# set -g mouse on
 # <<< lemux <<<
 EOF
 }
@@ -273,14 +362,15 @@ lemux — tmux-native navigator for branched Claude Code sessions
   lemux start [name]     start a tracked root claude session in this pane
   lemux tree             fzf tree navigator (enter: jump, ctrl-x: delete)
   lemux ls               print the tree
-  lemux branch <pane>    fork the pane's session (excerpt on stdin)
+  lemux ask <pane>       branch popup: copied text + a question
+  lemux branch <pane>    fork the pane's session (--text/--ask, or stdin)
   lemux jump <id>        focus a branch, reviving its window if closed
   lemux rm <id>          delete a branch + its subtree (transcripts too)
   lemux init             print tmux keybindings (append to ~/.tmux.conf)
 
-Typical flow: lemux start → chat → copy-mode, highlight text, press B →
-side quest opens as a fork with full parent context → prefix+T to jump
-around → prefix+X to throw a side quest away.
+Typical flow: lemux start → chat → select text with the mouse and hit cmd-C →
+prefix+B, type your question → side quest opens as a fork with the full parent
+context → prefix+T to jump around → prefix+X to throw a side quest away.
 EOF
 }
 
@@ -289,12 +379,15 @@ EOF
 case "${1:-help}" in
   start)    shift; cmd_start "$@" ;;
   branch)   shift; cmd_branch "$@" ;;
+  ask)      shift; cmd_ask "$@" ;;
   tree)     shift; cmd_tree "$@" ;;
   jump)     shift; cmd_jump "$@" ;;
   rm)       shift; cmd_rm "$@" ;;
   ls)       shift; cmd_ls "$@" ;;
   init)     shift; cmd_init "$@" ;;
   _list)    shift; cmd__list "$@" ;;
+  _askpopup) shift; cmd__askpopup "$@" ;;
+  _type)    shift; cmd__type "$@" ;;
   _preview) shift; cmd__preview "$@" ;;
   _run)     shift; cmd__run "$@" ;;
   help|-h|--help) cmd_help ;;

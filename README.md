@@ -49,22 +49,37 @@ lemux start litefs        # in a tmux pane: starts a tracked claude session
 
 | Keys | Action |
 |------|--------|
-| copy-mode → select text → `B` | **Branch**: fork this session into a new window, seeded with the selection |
+| select text, copy it, `prefix + B` | **Branch**: fork this session into a new window, seeded with what you copied |
 | `prefix + T` | **Tree**: fzf navigator — type to filter, enter to jump, `ctrl-x` to delete |
 | `prefix + X` | **Delete** the current pane's branch and its whole subtree |
 
-The flow: while reading an assistant response, enter copy-mode (`prefix + [`),
-highlight the sentence or diagram you want to dig into, press `B`. A new
-window opens running a fork of the session with the excerpt pre-typed into the
-input box:
+The flow: while reading an assistant response, select the sentence you want to
+dig into with the mouse and copy it (`cmd-C` on macOS), then hit `prefix + B`.
+A popup shows what you're branching on and asks for your question:
 
 ```
-Re "copy-on-write B-tree so writers never block readers": ▌
+  branch a side quest  (from litefs)
+
+  on "copy-on-write B-tree so writers never block readers"
+
+  type your question and hit enter · empty enter opens the branch so you
+  can type there · ctrl-c cancels
+
+  > why does that avoid write locks_
 ```
 
-Type your question and go as deep as you like — branch the branch, branch a
-different excerpt of the same message, whatever. `prefix + T` shows where you
-are:
+Enter opens a new window running a fork of your session — full parent context
+— with the question already sent as:
+
+```
+Re "copy-on-write B-tree so writers never block readers": why does that avoid write locks
+```
+
+Hit enter on an empty question instead and the branch opens with just the
+excerpt waiting in the input box, for you to type there.
+
+Go as deep as you like — branch the branch, branch a different excerpt of the
+same message, whatever. `prefix + T` shows where you are:
 
 ```
 ● litefs
@@ -82,8 +97,19 @@ are:
   root from lemux tracking but always keeps its transcript.
 - **Forks are cheap**: a fork shares its full prefix with the parent, so the
   first message usually hits Anthropic's prompt cache.
-- **`B` in vi copy-mode** shadows the back-WORD motion. If you use that,
-  rebind the branch key in the generated `~/.tmux.conf` block.
+- **Where the excerpt comes from**: the system clipboard first (`pbpaste`),
+  falling back to tmux's own paste buffer. So native terminal selection +
+  `cmd-C` works, and so does a tmux copy-mode / mouse selection. Because
+  lemux puts each branch in its own full-width *window* (never a split),
+  native mouse selection never picks up a neighbouring pane's text.
+- **Prefer selecting entirely by keyboard?** In copy-mode, select text and
+  press `B` — that branches straight from the selection, no popup, no
+  clipboard. Note it shadows vi copy-mode's back-WORD motion; rebind it in
+  the `>>> lemux >>>` block if you use that.
+- **`set -g mouse on`** is included commented-out in the keybinding block.
+  Turn it on if you'd rather drag-select inside tmux (which copies straight
+  to the buffer, skipping `cmd-C`) — at the cost of the wheel scrolling into
+  copy-mode instead of your terminal's scrollback.
 - Sessions started with plain `claude` aren't branchable — lemux needs to
   pre-assign the session ID, which is why you start roots with `lemux start`.
 - The excerpt pre-fill waits for claude's UI to render (up to ~15 s) before
