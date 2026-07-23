@@ -97,19 +97,10 @@ same message, whatever. `prefix + T` shows where you are:
   root from lemux tracking but always keeps its transcript.
 - **Forks are cheap**: a fork shares its full prefix with the parent, so the
   first message usually hits Anthropic's prompt cache.
-- **Where the excerpt comes from**: the system clipboard first (`pbpaste`),
-  falling back to tmux's own paste buffer. So native terminal selection +
-  `cmd-C` works, and so does a tmux copy-mode / mouse selection. Because
-  lemux puts each branch in its own full-width *window* (never a split),
-  native mouse selection never picks up a neighbouring pane's text.
-- **Prefer selecting entirely by keyboard?** In copy-mode, select text and
-  press `B` — that branches straight from the selection, no popup, no
-  clipboard. Note it shadows vi copy-mode's back-WORD motion; rebind it in
-  the `>>> lemux >>>` block if you use that.
-- **`set -g mouse on`** is included commented-out in the keybinding block.
-  Turn it on if you'd rather drag-select inside tmux (which copies straight
-  to the buffer, skipping `cmd-C`) — at the cost of the wheel scrolling into
-  copy-mode instead of your terminal's scrollback.
+- **Where the excerpt comes from**: the system clipboard (`pbpaste`), falling
+  back to tmux's paste buffer. Because lemux puts each branch in its own
+  full-width *window* — never a split — native mouse selection can't pick up
+  a neighbouring pane's text.
 - Sessions started with plain `claude` aren't branchable — lemux needs to
   pre-assign the session ID, which is why you start roots with `lemux start`.
 - The excerpt pre-fill waits for claude's UI to render (up to ~15 s) before

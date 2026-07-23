@@ -110,18 +110,17 @@ cmd_start() { # [name] — start a tracked root claude session in the current pa
 
 cmd_branch() { # <pane_id> [--text <excerpt>] [--ask <question>] — fork the pane's session
   init_state
-  local pane excerpt="" question="" have_text=0
+  local pane excerpt="" question=""
   pane="${1:?usage: lemux branch <pane_id> [--text <excerpt>] [--ask <question>]}"
   shift
   while (($#)); do
     case "$1" in
-      --text) shift; excerpt=$(printf '%s' "${1:-}" | collapse_ws); have_text=1 ;;
+      --text) shift; excerpt=$(printf '%s' "${1:-}" | collapse_ws) ;;
       --ask)  shift; question=$(printf '%s' "${1:-}" | collapse_ws) ;;
       *)      die "branch: unexpected argument: $1" ;;
     esac
     shift
   done
-  ((have_text)) || excerpt=$(collapse_ws)   # otherwise the excerpt arrives on stdin
   [[ -n "$excerpt$question" ]] || die "nothing to branch on — select some text and copy it first"
 
   local parent dir id name
@@ -341,16 +340,9 @@ cmd_init() { # print tmux keybindings (absolute paths — PATH-proof)
 # prefix + B          branch on the text you just copied (select + cmd-C first)
 # prefix + T          open the branch tree navigator
 # prefix + X          delete the current pane's branch (+ subtree)
-# copy-mode, B        branch straight from a keyboard selection
 bind-key B run-shell "$self _askpopup '#{pane_id}'"
 bind-key T display-popup -E -w 85% -h 70% "$self tree"
 bind-key X confirm-before -p "lemux: delete this branch and its subtree? (y/n)" "run-shell \"$self rm --pane '#{pane_id}'\""
-bind-key -T copy-mode-vi B send-keys -X copy-pipe-and-cancel "$self branch '#{pane_id}'"
-bind-key -T copy-mode    B send-keys -X copy-pipe-and-cancel "$self branch '#{pane_id}'"
-# Uncomment for tmux-native mouse selection (drag to select copies straight to
-# the buffer, so prefix+B works without cmd-C — but the wheel then scrolls
-# into copy-mode instead of your terminal's scrollback):
-# set -g mouse on
 # <<< lemux <<<
 EOF
 }
@@ -363,7 +355,7 @@ lemux — tmux-native navigator for branched Claude Code sessions
   lemux tree             fzf tree navigator (enter: jump, ctrl-x: delete)
   lemux ls               print the tree
   lemux ask <pane>       branch popup: copied text + a question
-  lemux branch <pane>    fork the pane's session (--text/--ask, or stdin)
+  lemux branch <pane>    fork the pane's session (--text <excerpt> --ask <q>)
   lemux jump <id>        focus a branch, reviving its window if closed
   lemux rm <id>          delete a branch + its subtree (transcripts too)
   lemux init             print tmux keybindings (append to ~/.tmux.conf)

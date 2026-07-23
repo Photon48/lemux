@@ -49,4 +49,4 @@ case ":$PATH:" in
 esac
 
 say "done. inside tmux, run:  lemux start [name]"
-say "keys: copy-mode+B branch · prefix+T tree · prefix+X delete"
+say "keys: prefix+B branch · prefix+T tree · prefix+X delete"
