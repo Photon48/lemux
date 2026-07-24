@@ -41,6 +41,20 @@ root_of() {
   printf '%s' "$id"
 }
 
+descendants() { # id — print the id and every descendant id, one per line (BFS)
+  local frontier=("$1") next p kids
+  printf '%s\n' "$1"
+  while ((${#frontier[@]})); do
+    next=()
+    for p in "${frontier[@]}"; do
+      kids=($(jq -r --arg id "$p" '.[] | select(.parent==$id) | .id' "$TREE"))
+      ((${#kids[@]})) && { printf '%s\n' "${kids[@]}"; next+=("${kids[@]}"); }
+    done
+    frontier=("${next[@]:-}")
+    [[ -z "${frontier[0]:-}" ]] && frontier=()
+  done
+}
+
 add_node() { # id parent name excerpt dir
   jq_update --arg id "$1" --arg parent "$2" --arg name "$3" \
     --arg excerpt "$4" --arg dir "$5" --argjson created "$(date +%s)" \
@@ -105,10 +119,22 @@ cmd__type() { # pane seedfile submit — wait for claude's input box, then type
 
 # ---------- commands ----------
 
-cmd_start() { # [name] — start a tracked root claude session in the current pane
+cmd_start() { # [name] — enter a topic: resume the root if it exists, create it if not
   [[ -n "${TMUX:-}" ]] || die "start must be run inside tmux"
   init_state
-  local name="${1:-$(basename "$PWD")}" id
+  local name="${1:-$(basename "$PWD")}" id win mode
+  id=$(jq -r --arg n "$name" '[.[] | select(.parent=="" and .name==$n)] | first // {} | .id // ""' "$TREE")
+  if [[ -n "$id" ]]; then
+    win=$(node_field "$id" window)
+    if window_alive "$win"; then
+      tmux select-window -t "$win"
+      return 0
+    fi
+    mode=revive
+    [[ -f "$(session_file "$id" "$(node_field "$id" dir)")" ]] || mode=new
+    tmux rename-window "$name"
+    exec "$SELF" _run "$id" "$(node_field "$id" dir)" "$mode"
+  fi
   id=$(new_uuid)
   add_node "$id" "" "$name" "" "$PWD"
   tmux rename-window "$name"
@@ -195,12 +221,33 @@ cmd__run() { # id dir mode [parent] — wrapper that tags the pane and execs cla
     --arg win "$(tmux display-message -p '#{window_id}')" \
     --arg pane "${TMUX_PANE:-}" \
     'map(if .id==$id then .window=$win | .pane=$pane else . end)'
+  # Side quests just run. Roots run in the foreground so that when claude
+  # exits, the topic's side-quest windows are swept away with it — the tree
+  # and transcripts stay, so 'lemux start <name>' brings it all back.
+  if [[ -n "$(node_field "$id" parent)" ]]; then
+    case "$mode" in
+      fork)   exec "$CLAUDE_BIN" --resume "$parent" --fork-session --session-id "$id" ;;
+      revive) exec "$CLAUDE_BIN" --resume "$id" ;;
+      *)      die "unknown run mode for a branch: $mode" ;;
+    esac
+  fi
   case "$mode" in
-    new)    exec "$CLAUDE_BIN" --session-id "$id" ;;
-    fork)   exec "$CLAUDE_BIN" --resume "$parent" --fork-session --session-id "$id" ;;
-    revive) exec "$CLAUDE_BIN" --resume "$id" ;;
-    *)      die "unknown run mode: $mode" ;;
+    new)    "$CLAUDE_BIN" --session-id "$id" || true ;;
+    revive) "$CLAUDE_BIN" --resume "$id" || true ;;
+    *)      die "unknown run mode for a root: $mode" ;;
   esac
+  local n win all
+  for n in $(descendants "$id"); do
+    [[ "$n" == "$id" ]] && continue
+    win=$(node_field "$n" window)
+    window_alive "$win" && tmux kill-window -t "$win" 2>/dev/null || true
+  done
+  # This pane becomes a plain shell again; without clearing the stale
+  # window records, 'lemux start' would mistake it for a live topic.
+  all=$(descendants "$id" | jq -R . | jq -s .)
+  jq_update --argjson ids "$all" \
+    'map(if (.id as $i | $ids | index($i)) then .window="" | .pane="" else . end)'
+  tmux set-option -p -u @lemux_session 2>/dev/null || true
 }
 
 cmd__list() { # [root_id] — tab-separated: id <TAB> rendered tree line
@@ -283,22 +330,8 @@ cmd_rm() { # [--force] <id> | [--force] --pane <pane_id> — delete branch + sub
     die "refusing to delete a root session (use --force to remove it from lemux; its transcript is kept)"
   fi
 
-  # Collect the subtree (BFS).
-  local ids=("$id") frontier=("$id")
-  while ((${#frontier[@]})); do
-    local next=()
-    local p
-    for p in "${frontier[@]}"; do
-      local kids
-      kids=($(jq -r --arg id "$p" '.[] | select(.parent==$id) | .id' "$TREE"))
-      ((${#kids[@]})) && next+=("${kids[@]}")
-    done
-    ((${#next[@]})) && ids+=("${next[@]}")
-    frontier=("${next[@]:-}")
-    [[ -z "${frontier[0]:-}" ]] && frontier=()
-  done
-
-  local n root_parent
+  local ids n root_parent
+  ids=($(descendants "$id"))
   root_parent=$(node_field "$id" parent)
   for n in "${ids[@]}"; do
     local win dir
@@ -365,7 +398,7 @@ cmd_help() {
   cat <<'EOF'
 lemux — tmux-native navigator for branched Claude Code sessions
 
-  lemux start [name]     start a tracked root claude session in this pane
+  lemux start [name]     enter a topic — resumes it if it exists, creates it if not
   lemux tree <pane>      fzf navigator over that session's own side quests
   lemux ls               print every tracked tree
   lemux ask <pane>       branch popup: copied text + a question

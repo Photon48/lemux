@@ -44,8 +44,16 @@ re-running replaces the block), and reloads tmux. Uninstall by deleting
 ## Use
 
 ```sh
-lemux start litefs        # in a tmux pane: starts a tracked claude session
+lemux start litefs        # in a tmux pane: enter the "litefs" topic
 ```
+
+`start` is enter-or-create: a new name starts a fresh claude session; a name
+you've used before takes you back to that topic — jumping to its window if
+it's open, resuming the conversation if not. When you exit a topic's root
+claude, its side-quest windows are swept away with it; the tree and every
+transcript survive, so `lemux start litefs` later brings the whole topic
+back, side quests revivable from `prefix + T`. (`lemux ls` lists every topic
+if you forget a name.)
 
 | Keys | Action |
 |------|--------|
