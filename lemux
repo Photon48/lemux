@@ -178,6 +178,21 @@ cmd__type() { # pane seedfile submit — wait for claude's input box, then type
   fi
 }
 
+cmd__name() { # id promptfile — background: ask haiku for a 1-4 word name, rename node + window
+  local id="$1" f="$2" name win
+  name=$("$CLAUDE_BIN" -p --model claude-haiku-4-5 \
+    --system-prompt 'Name the side-quest conversation being branched here. Output ONLY a 1-4 word lowercase name, nothing else.' \
+    --tools "" --strict-mcp-config --max-turns 1 \
+    --setting-sources "" --no-session-persistence <"$f" 2>/dev/null |
+    head -1 | tr -cd '[:alnum:] -' |
+    awk '{for(i=1;i<=NF&&i<=4;i++)printf "%s%s",(i>1?" ":""),$i}') || name=""
+  rm -f "$f"
+  [[ -n "$name" ]] || return 0   # anything went wrong — the placeholder name stays
+  jq_update --arg id "$id" --arg n "$name" 'map(if .id==$id then .name=$n else . end)'
+  win=$(node_field "$id" window)
+  window_alive "$win" && tmux rename-window -t "$win" "$name" 2>/dev/null || true
+}
+
 # ---------- commands ----------
 
 cmd_start() { # <name> — enter a topic: resume the root if it exists, create it if not
@@ -245,6 +260,25 @@ cmd_branch() { # <pane_id> [--text <excerpt>] [--ask <question>] — fork the pa
   fi
   [[ -n "$question" ]] && submit=1 || submit=0
   _prefill "$newpane" "$seed" "$submit"
+
+  # Name the branch properly in the background: the excerpt plus the assistant
+  # message it was highlighted from (empty excerpt matches the last message).
+  # The window opens under the placeholder and renames when haiku answers.
+  local ctx f
+  ctx=$(jq -rs --arg ex "$excerpt" '
+    [ .[] | select(.type=="assistant") | (.message.content // "")
+      | (if type=="string" then .
+         else ([.[]? | select(.type?=="text") | .text] | join(" ")) end)
+      | gsub("\\s+"; " ") | select(. != "") ]
+    | (map(select(contains($ex))) | last) // last // ""
+  ' "$(session_file "$parent" "$dir")" 2>/dev/null | cut -c1-2400) || ctx=""
+  f=$(mktemp "$LEMUX_DIR/.name.XXXXXX")
+  {
+    printf 'A side quest is being branched from this assistant response:\n"%s"\n' "$ctx"
+    [[ -z "$excerpt" ]] || printf 'The user highlighted: "%s"\n' "$excerpt"
+    [[ -z "$question" ]] || printf 'Their question: "%s"\n' "$question"
+  } >"$f"
+  tmux run-shell -b "$(printf '%q' "$SELF") _name $(printf '%q' "$id") $(printf '%q' "$f")"
 }
 
 cmd_ask() { # <pane_id> — popup: confirm the copied excerpt, type a question, branch
@@ -500,6 +534,7 @@ case "${1:-help}" in
   _list)    shift; cmd__list "$@" ;;
   _popup)   shift; cmd__popup "$@" ;;
   _type)    shift; cmd__type "$@" ;;
+  _name)    shift; cmd__name "$@" ;;
   _state)   shift; cmd__state "$@" ;;
   _preview) shift; cmd__preview "$@" ;;
   _run)     shift; cmd__run "$@" ;;
