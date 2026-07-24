@@ -124,7 +124,8 @@ cmd_start() { # <name> — enter a topic: resume the root if it exists, create i
   init_state
   local name="${1:-}" id win mode
   [[ -n "$name" ]] || die "usage: lemux start <name>   (lemux ls shows existing topics)"
-  id=$(jq -r --arg n "$name" '[.[] | select(.parent=="" and .name==$n)] | first // {} | .id // ""' "$TREE")
+  id=$(jq -r --arg n "$name" --arg d "$PWD" \
+    '[.[] | select(.parent=="" and .name==$n and .dir==$d)] | first // {} | .id // ""' "$TREE")
   if [[ -n "$id" ]]; then
     win=$(node_field "$id" window)
     if window_alive "$win"; then
@@ -262,8 +263,10 @@ cmd__list() { # [root_id] — tab-separated: id <TAB> rendered tree line
     _walk "$1" "" root
     return 0
   fi
+  # Topics are per-folder, like claude --resume: list only this folder's.
   local r
-  for r in $(jq -r '[.[] | select(.parent=="")] | sort_by(.created) | .[].id' "$TREE"); do
+  for r in $(jq -r --arg d "$PWD" \
+      '[.[] | select(.parent=="" and .dir==$d)] | sort_by(.created) | .[].id' "$TREE"); do
     _walk "$r" "" root
   done
 }
@@ -330,13 +333,14 @@ cmd_rm() { # <topic-name | id> | --pane <pane_id> — delete a branch or untrack
   done
   [[ -n "$id" ]] || die "usage: lemux rm <topic-name | id | --pane <pane_id>>"
   if [[ -z "$(node_field "$id" name)" ]]; then
-    # not an id — resolve it as a topic name
+    # not an id — resolve it as a topic name in this folder
     local matches
-    matches=($(jq -r --arg n "$id" '.[] | select(.parent=="" and .name==$n) | .id' "$TREE"))
+    matches=($(jq -r --arg n "$id" --arg d "$PWD" \
+      '.[] | select(.parent=="" and .name==$n and .dir==$d) | .id' "$TREE"))
     case ${#matches[@]} in
-      0) die "unknown session or topic: $id" ;;
+      0) die "no topic named '$id' in this folder (topics are per-folder, like claude --resume)" ;;
       1) id="${matches[0]}" ;;
-      *) die "several topics are named '$id' — rm by id: ${matches[*]}" ;;
+      *) die "several topics here are named '$id' — rm by id: ${matches[*]}" ;;
     esac
   fi
 
@@ -410,7 +414,7 @@ lemux — tmux-native navigator for branched Claude Code sessions
 
   lemux start <name>     enter a topic — resumes it if it exists, creates it if not
   lemux tree <pane>      fzf navigator over that session's own side quests
-  lemux ls               print every tracked tree
+  lemux ls               print this folder's topics (like claude --resume)
   lemux ask <pane>       branch popup: copied text + a question
   lemux branch <pane>    fork the pane's session (--text <excerpt> --ask <q>)
   lemux jump <id>        focus a branch, reviving its window if closed

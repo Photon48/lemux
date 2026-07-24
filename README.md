@@ -49,9 +49,10 @@ lemux start litefs        # in a tmux pane: enter the "litefs" topic
 
 `start` is enter-or-create: a new name starts a fresh claude session; a name
 you've used before takes you back to that topic — jumping to its window if
-it's open, resuming the conversation if not. The name is required, and topic
-names are unique by construction: the same name always means the same topic.
-`lemux ls` lists every topic if you forget one.
+it's open, resuming the conversation if not. The name is required, and topics
+are scoped to the folder you're in, exactly like `claude --resume`: within a
+folder the same name always means the same topic, and `lemux ls` lists that
+folder's topics.
 
 To stop tracking a topic entirely, `lemux rm <name>`: its windows close, its
 side-quest transcripts are deleted, and the root conversation is kept on disk
