@@ -41,6 +41,25 @@ root_of() {
   printf '%s' "$id"
 }
 
+# Enforce the path discipline: in the topic containing ctx, close every
+# window that isn't on the chain root → anchor, and clear the pruned nodes'
+# window records. skip's window is left for tmux to close naturally (it's
+# the caller's own). An empty anchor prunes the whole topic.
+prune_path() { # ctx anchor [skip]
+  local ctx="$1" anchor="$2" skip="${3:-}" keep=" " n win pruned=""
+  n="$anchor"; while [[ -n "$n" ]]; do keep+="$n "; n=$(node_field "$n" parent); done
+  for n in $(descendants "$(root_of "$ctx")"); do
+    [[ "$keep" == *" $n "* ]] && continue
+    pruned+="$n"$'\n'
+    [[ "$n" == "$skip" ]] && continue
+    win=$(node_field "$n" window)
+    window_alive "$win" && tmux kill-window -t "$win" 2>/dev/null || true
+  done
+  [[ -z "$pruned" ]] && return 0
+  jq_update --argjson ids "$(printf '%s' "$pruned" | jq -R . | jq -s .)" \
+    'map(if (.id as $i | $ids | index($i)) then .window="" | .pane="" else . end)'
+}
+
 descendants() { # id — print the id and every descendant id, one per line (BFS)
   local frontier=("$1") next p kids
   printf '%s\n' "$1"
@@ -231,25 +250,16 @@ cmd__run() { # id dir mode [parent] — wrapper that tags the pane and execs cla
     *)      die "unknown run mode: $mode" ;;
   esac
   "$CLAUDE_BIN" "${args[@]}" || rc=$?
-  ((rc)) && exit "$rc"   # remain-on-exit keeps the pane so the error stays readable
+  # 130 is ctrl-c — a normal way to leave. Anything else keeps the pane
+  # (remain-on-exit) so the error stays readable.
+  ((rc)) && ((rc != 130)) && exit "$rc"
 
-  # Exiting walks you back up the path. Open windows are only ever the chain
-  # you're inside (root → … → here), so on exit everything in this topic
-  # that isn't an ancestor of where you land is closed. State and
-  # transcripts survive — the tree revives any of it.
-  local keep=" " p n win pruned
+  # Exiting walks you back up the path: land on the parent, close every
+  # window in the topic below it. State and transcripts survive — the
+  # tree revives any of it.
+  local p win
   p=$(node_field "$id" parent)
-  n="$p"; while [[ -n "$n" ]]; do keep+="$n "; n=$(node_field "$n" parent); done
-  pruned=""
-  for n in $(descendants "$(root_of "$id")"); do
-    [[ "$keep" == *" $n "* ]] && continue
-    pruned+="$n"$'\n'
-    [[ "$n" == "$id" ]] && continue   # our own window closes when we exit
-    win=$(node_field "$n" window)
-    window_alive "$win" && tmux kill-window -t "$win" 2>/dev/null || true
-  done
-  jq_update --argjson ids "$(printf '%s' "$pruned" | jq -R . | jq -s .)" \
-    'map(if (.id as $i | $ids | index($i)) then .window="" | .pane="" else . end)'
+  prune_path "$id" "$p" "$id"
   tmux set-option -p -u @lemux_session 2>/dev/null || true
   if [[ -n "$p" ]]; then
     win=$(node_field "$p" window)
@@ -319,6 +329,8 @@ cmd_jump() { # id — focus the branch's window, reviving it if closed
     tmux new-window -c "$dir" -n "$name" \
       "exec $(printf '%q' "$SELF") _run $(printf '%q' "$id") $(printf '%q' "$dir") revive"
   fi
+  # Landing somewhere means that's the path now — close everything below it.
+  prune_path "$id" "$id"
 }
 
 cmd_rm() { # <topic-name | id> | --pane <pane_id> — delete a branch or untrack a topic

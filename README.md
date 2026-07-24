@@ -61,11 +61,13 @@ side-quest transcripts are deleted, and the root conversation is kept on disk
 quest and its subtree, transcripts included.
 
 Open windows follow a path discipline: they are only ever the chain you're
-inside (root → side quest → deeper side quest). Exiting a session's claude
-walks you back up — you land on its parent, and every window in the topic
-below that level closes, including sibling side quests you'd opened earlier.
-The tree and every transcript survive pruning, so anything closed is one
-`prefix + T`, enter away; exiting the root closes the whole topic.
+inside (root → side quest → deeper side quest). Wherever you land through
+lemux — exiting a session's claude walks you up to its parent, jumping in
+the tree drops you anywhere — every window in the topic outside the new
+path closes, sibling side quests included. The tree and every transcript
+survive pruning, so anything closed is one `prefix + T`, enter away;
+exiting the root closes the whole topic. (Switching windows with tmux's own
+keys is tmux's business — lemux prunes only when it moves you.)
 
 | Keys | Action |
 |------|--------|
