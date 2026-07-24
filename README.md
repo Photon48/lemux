@@ -69,6 +69,13 @@ survive pruning, so anything closed is one `prefix + T`, enter away;
 exiting the root closes the whole topic. (Switching windows with tmux's own
 keys is tmux's business — lemux prunes only when it moves you.)
 
+Pruning never kills a session that's working or waiting on you. Every claude
+lemux launches carries hooks (injected per-session via `--settings`, your
+config untouched) that report its lifecycle: busy during a turn, waiting at a
+permission or input dialog, idle between turns. Only idle windows are pruned.
+One known gap: Esc-cancelling a permission dialog emits no event, so that
+session stays "waiting" — spared — until you next interact with it.
+
 | Keys | Action |
 |------|--------|
 | select text, copy it, `prefix + B` | **Branch**: fork this session into a new window, seeded with what you copied |

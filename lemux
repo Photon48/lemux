@@ -50,10 +50,12 @@ prune_path() { # ctx anchor [skip]
   n="$anchor"; while [[ -n "$n" ]]; do keep+="$n "; n=$(node_field "$n" parent); done
   for n in $(descendants "$(root_of "$ctx")"); do
     [[ "$keep" == *" $n "* ]] && continue
-    pruned+="$n"$'\n'
-    [[ "$n" == "$skip" ]] && continue
     win=$(node_field "$n" window)
-    window_alive "$win" && tmux kill-window -t "$win" 2>/dev/null || true
+    if [[ "$n" != "$skip" ]] && window_alive "$win"; then
+      [[ "$(state_of "$n")" != "idle" ]] && continue   # working or waiting on you — spared
+      tmux kill-window -t "$win" 2>/dev/null || true
+    fi
+    pruned+="$n"$'\n'
   done
   [[ -z "$pruned" ]] && return 0
   jq_update --argjson ids "$(printf '%s' "$pruned" | jq -R . | jq -s .)" \
@@ -83,6 +85,39 @@ add_node() { # id parent name excerpt dir
 
 window_alive() {
   [[ -n "$1" ]] && tmux list-windows -a -F '#{window_id}' 2>/dev/null | grep -qx "$1"
+}
+
+# Session state, ground truth from Claude Code's own lifecycle hooks
+# (injected at launch via --settings): busy while a turn is running,
+# waiting at a permission/elicitation dialog, idle between turns.
+# No state file (pre-hook session) reads as idle.
+state_of() { cat "$LEMUX_DIR/state/$1" 2>/dev/null || echo idle; }
+
+ensure_hooks() { # write the per-launch settings that report state back to us
+  local c
+  c="$(printf '%q' "$SELF") _state"
+  jq -n --arg c "$c" '{hooks: {
+    SessionStart:      [{hooks: [{type: "command", command: ($c + " idle")}]}],
+    UserPromptSubmit:  [{hooks: [{type: "command", command: ($c + " busy")}]}],
+    PreToolUse:        [{hooks: [{type: "command", command: ($c + " busy")}]}],
+    PermissionRequest: [{hooks: [{type: "command", command: ($c + " waiting")}]}],
+    Elicitation:       [{hooks: [{type: "command", command: ($c + " waiting")}]}],
+    Stop:              [{hooks: [{type: "command", command: ($c + " idle")}]}],
+    StopFailure:       [{hooks: [{type: "command", command: ($c + " idle")}]}],
+    SessionEnd:        [{hooks: [{type: "command", command: ($c + " gone")}]}]
+  }}' >"$LEMUX_DIR/hooks.json"
+}
+
+cmd__state() { # <state> — hook callback; session_id arrives on stdin as JSON
+  local s="${1:?}" sid
+  sid=$(jq -r '.session_id // ""' 2>/dev/null) || sid=""
+  [[ -n "$sid" ]] || exit 0
+  mkdir -p "$LEMUX_DIR/state"
+  if [[ "$s" == "gone" ]]; then
+    rm -f "$LEMUX_DIR/state/$sid"
+  else
+    printf '%s' "$s" >"$LEMUX_DIR/state/$sid"
+  fi
 }
 
 session_file() { # id dir
@@ -249,7 +284,9 @@ cmd__run() { # id dir mode [parent] — wrapper that tags the pane and execs cla
     revive) args=(--resume "$id") ;;
     *)      die "unknown run mode: $mode" ;;
   esac
-  "$CLAUDE_BIN" "${args[@]}" || rc=$?
+  ensure_hooks
+  "$CLAUDE_BIN" --settings "$LEMUX_DIR/hooks.json" "${args[@]}" || rc=$?
+  rm -f "$LEMUX_DIR/state/$id"
   # 130 is ctrl-c — a normal way to leave. Anything else keeps the pane
   # (remain-on-exit) so the error stays readable.
   ((rc)) && ((rc != 130)) && exit "$rc"
@@ -363,6 +400,7 @@ cmd_rm() { # <topic-name | id> | --pane <pane_id> — delete a branch or untrack
     local win dir
     win=$(node_field "$n" window)
     window_alive "$win" && tmux kill-window -t "$win" 2>/dev/null || true
+    rm -f "$LEMUX_DIR/state/$n"
     # Root transcripts are never auto-deleted; branch transcripts are.
     if ! { [[ "$n" == "$id" ]] && [[ -z "$root_parent" ]]; }; then
       dir=$(node_field "$n" dir)
@@ -455,6 +493,7 @@ case "${1:-help}" in
   _list)    shift; cmd__list "$@" ;;
   _popup)   shift; cmd__popup "$@" ;;
   _type)    shift; cmd__type "$@" ;;
+  _state)   shift; cmd__state "$@" ;;
   _preview) shift; cmd__preview "$@" ;;
   _run)     shift; cmd__run "$@" ;;
   help|-h|--help) cmd_help ;;
