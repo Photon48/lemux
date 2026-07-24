@@ -100,6 +100,14 @@ focus_window() {
 # No state file (pre-hook session) reads as idle.
 state_of() { cat "$LEMUX_DIR/state/$1" 2>/dev/null || echo idle; }
 
+ago() { # epoch → "5m ago"
+  local d=$(($(date +%s) - $1))
+  if ((d < 60)); then echo "${d}s ago"
+  elif ((d < 3600)); then echo "$((d / 60))m ago"
+  elif ((d < 86400)); then echo "$((d / 3600))h ago"
+  else echo "$((d / 86400))d ago"; fi
+}
+
 ensure_hooks() { # write the per-launch settings that report state back to us
   local c
   c="$(printf '%q' "$SELF") _state"
@@ -394,7 +402,8 @@ cmd_tree() { # <pane_id> — fzf navigator over this session's own side quests
   out=$(cmd__list "$root" | fzf --delimiter='\t' --with-nth=2 --no-sort --layout=reverse \
     --prompt='lemux> ' \
     --header='enter: jump · ctrl-x: delete branch · esc: close' \
-    --preview="$self _preview {1}" --preview-window=right,55%,wrap \
+    --preview="$self _preview {1}" --wrap-sign='  ' \
+    --preview-window=right,55%,wrap,border-left,follow,~3 \
     --bind="ctrl-x:execute-silent($self rm {1})+reload($self _list $root)") || return 0
   cmd_jump "${out%%$'\t'*}"
 }
@@ -458,32 +467,70 @@ cmd_rm() { # <topic-name | id> | --pane <pane_id> — delete a branch or untrack
   jq_update --argjson dead "$json_ids" 'map(select(.id as $i | $dead | index($i) | not))'
 }
 
-cmd__preview() { # id — branch info + transcript tail, for the fzf preview pane
+cmd__preview() { # id — sticky status card + compact transcript tail, for the fzf preview pane
   init_state
-  local id="${1:?}" name excerpt dir file
+  local id="${1:?}" name excerpt dir file state kids_json kids parent
   name=$(node_field "$id" name)
   excerpt=$(node_field "$id" excerpt)
   dir=$(node_field "$id" dir)
-  printf '%s\n' "$name"
-  printf 'session %s\n' "$id"
-  if [[ -n "$excerpt" ]]; then
-    printf '\nbranched on:\n"%s"\n' "$excerpt"
-  fi
-  printf '\n─────────────────────────\n'
+  parent=$(node_field "$id" parent)
   file=$(session_file "$id" "$dir")
+  if window_alive "$(node_field "$id" window)"; then
+    case "$(state_of "$id")" in
+      busy)    state=$'\033[32m●\033[0m busy' ;;
+      waiting) state=$'\033[33m●\033[0m waiting' ;;
+      *)       state='● idle' ;;
+    esac
+  else
+    state=$'\033[2m○ closed\033[0m'
+  fi
+  kids_json=$(jq -c --arg id "$id" \
+    '[.[] | select(.parent==$id) | {name, ex: ((.excerpt // "")
+      | gsub("[*`_#]"; "") | gsub("\\s+"; " ") | sub("^ "; "") | sub(" $"; ""))}]' "$TREE")
+  kids=$(jq length <<<"$kids_json")
+  # 3-line card, pinned by the preview window's ~3
+  printf '\033[1m%s\033[0m  %s' "$name" "$state"
+  [[ -f "$file" ]] && printf ' · %s' "$(ago "$(stat -f %m "$file")")"
+  if ((kids == 1)); then printf ' · 1 branch'
+  elif ((kids > 1)); then printf ' · %s branches' "$kids"; fi
+  printf '\n'
+  if [[ -n "$parent" ]]; then
+    [[ ${#excerpt} -gt 60 ]] && excerpt="${excerpt:0:60}…"
+    printf '\033[33m⑂\033[0m\033[2m from %s: “%s”\033[0m\n' "$(node_field "$parent" name)" "$excerpt"
+  else
+    printf '\033[2m%s\033[0m\n' "${dir/#$HOME/~}"
+  fi
+  printf '\033[2m┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄\033[0m\n'
   if [[ ! -f "$file" ]]; then
     printf '(no messages yet)\n'
     return 0
   fi
-  tail -n 400 "$file" | jq -r '
-    select(.type=="user" or .type=="assistant")
-    | {p: (if .type=="user" then "you ▸ " else "claude ▸ " end), c: (.message.content // "")}
-    | .c = (if (.c|type)=="string" then .c
-            elif (.c|type)=="array" then ([.c[] | select(type=="object" and .type=="text") | .text] | join(" "))
-            else "" end)
-    | select(.c != "")
-    | .p + (.c | gsub("\\s+"; " ") | .[0:400])
-  ' 2>/dev/null | tail -n 14 || printf '(could not parse transcript)\n'
+  tail -n 400 "$file" | jq -rs --argjson kids "$kids_json" --arg esc $'\033' '
+    def norm: gsub("[*`_#]"; "") | gsub(" +"; " ");   # markdown-blind, for excerpt matching
+    [ .[]
+      | select((.type=="user" or .type=="assistant") and .isMeta != true)
+      | (.message.content // "") as $raw
+      | ((if ($raw|type)=="array"
+          then ([$raw[] | select(type=="object" and .type=="text") | .text] | join(" "))
+          elif ($raw|type)=="string" then $raw else "" end)
+         | gsub("\\s+"; " ")
+         | gsub("<system-reminder>.*?</system-reminder>"; "")
+         | gsub(" +"; " ") | sub("^ "; "") | sub(" $"; "")) as $c
+      | select($c != "" and (($c | test("^<(local-command|command-|bash-)")) | not))
+      # a child branched on text inside this message — mark the fork point
+      | ([$kids[] | select(.ex != "" and (.ex as $e | $c | norm | contains($e)))
+          | "\n  " + $esc + "[32m⑂ " + .name + $esc + "[0m"] | join("")) as $forks
+      | (if .type=="user"
+         then (if ($c|length) > 240 then ($c | .[0:240]) + "…" else $c end) as $t
+           | if $t | test("^Re \"[^\"]*\": ")
+             then ($t | capture("^Re \"(?<x>[^\"]*)\": *(?<q>.*)"))
+               | "\n" + $esc + "[33m⑂ “" + (.x | if length > 48 then .[0:48] + "…" else . end)
+                 + "”" + $esc + "[0m " + .q
+             else "\n" + $esc + "[1;36m❯" + $esc + "[0m " + $t end
+         else "  " + $esc + "[2m" + (if ($c|length) > 200 then ($c | .[0:200]) + "…" else $c end)
+              + $esc + "[0m" end) + $forks
+    ] | .[-8:] | if . == [] then "(no messages yet)" else join("\n") | sub("^\n"; "") end
+  ' 2>/dev/null || printf '(could not parse transcript)\n'
 }
 
 cmd_ls() { cmd__list | cut -f2-; }
