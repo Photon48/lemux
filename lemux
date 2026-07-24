@@ -291,16 +291,21 @@ cmd_ask() { # <pane_id> — popup: confirm the copied excerpt, type a question, 
   [[ -f "$(session_file "$parent" "$dir")" ]] || popup_die "nothing to branch yet — send at least one message first"
 
   excerpt=$(get_clip | collapse_ws)
-  printf '\n  \033[1mbranch a side quest\033[0m  \033[2m(from %s)\033[0m\n\n' "$(node_field "$parent" name)"
+  local hdr rc=0
+  hdr="branch a side quest  (from $(node_field "$parent" name))"$'\n'
   if [[ -n "$excerpt" ]]; then
     shown=$(printf '%s' "$excerpt" | cut -c1-240)
     [[ "${#excerpt}" -gt 240 ]] && shown="$shown…"
-    printf '  \033[2mon\033[0m "%s"\n' "$shown"
+    hdr+="on \"$shown\""$'\n'
   else
-    printf '  \033[2mnothing copied — the branch will start from your question alone\033[0m\n'
+    hdr+="nothing copied — the branch will start from your question alone"$'\n'
   fi
-  printf '\n  \033[2mtype your question and hit enter · empty enter opens the branch so you\n  can type there · ctrl-c cancels\033[0m\n\n'
-  read -e -r -p "  > " question || { printf '\n  cancelled\n'; return 0; }
+  hdr+="type a question · enter: branch (empty: type in the branch) · esc: cancel"
+  # fzf as the line editor: real editing keys, and esc/ctrl-c cancel cleanly
+  # (bash 3.2's read -e can do neither).
+  question=$(: | fzf --print-query --prompt '> ' --layout=reverse --no-info \
+    --header "$hdr") || rc=$?
+  ((rc == 130)) && return 0
   cmd_branch "$pane" --text "$excerpt" --ask "$question"
 }
 
