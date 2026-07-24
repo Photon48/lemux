@@ -119,10 +119,11 @@ cmd__type() { # pane seedfile submit — wait for claude's input box, then type
 
 # ---------- commands ----------
 
-cmd_start() { # [name] — enter a topic: resume the root if it exists, create it if not
+cmd_start() { # <name> — enter a topic: resume the root if it exists, create it if not
   [[ -n "${TMUX:-}" ]] || die "start must be run inside tmux"
   init_state
-  local name="${1:-$(basename "$PWD")}" id win mode
+  local name="${1:-}" id win mode
+  [[ -n "$name" ]] || die "usage: lemux start <name>   (lemux ls shows existing topics)"
   id=$(jq -r --arg n "$name" '[.[] | select(.parent=="" and .name==$n)] | first // {} | .id // ""' "$TREE")
   if [[ -n "$id" ]]; then
     win=$(node_field "$id" window)
@@ -317,22 +318,26 @@ cmd_jump() { # id — focus the branch's window, reviving it if closed
   fi
 }
 
-cmd_rm() { # [--force] <id> | [--force] --pane <pane_id> — delete branch + subtree
+cmd_rm() { # <topic-name | id> | --pane <pane_id> — delete a branch or untrack a topic
   init_state
-  local force=0 id=""
+  local id=""
   while (($#)); do
     case "$1" in
-      --force) force=1 ;;
-      --pane)  shift; id=$(tmux display-message -t "${1:?}" -p '#{@lemux_session}' 2>/dev/null || true) ;;
-      *)       id="$1" ;;
+      --pane) shift; id=$(tmux display-message -t "${1:?}" -p '#{@lemux_session}' 2>/dev/null || true) ;;
+      *)      id="$1" ;;
     esac
     shift
   done
-  [[ -n "$id" ]] || die "usage: lemux rm [--force] <id | --pane <pane_id>>"
-  [[ -n "$(node_field "$id" name)" ]] || die "unknown session $id"
-
-  if [[ -z "$(node_field "$id" parent)" && $force -eq 0 ]]; then
-    die "refusing to delete a root session (use --force to remove it from lemux; its transcript is kept)"
+  [[ -n "$id" ]] || die "usage: lemux rm <topic-name | id | --pane <pane_id>>"
+  if [[ -z "$(node_field "$id" name)" ]]; then
+    # not an id — resolve it as a topic name
+    local matches
+    matches=($(jq -r --arg n "$id" '.[] | select(.parent=="" and .name==$n) | .id' "$TREE"))
+    case ${#matches[@]} in
+      0) die "unknown session or topic: $id" ;;
+      1) id="${matches[0]}" ;;
+      *) die "several topics are named '$id' — rm by id: ${matches[*]}" ;;
+    esac
   fi
 
   local ids n root_parent
@@ -403,13 +408,15 @@ cmd_help() {
   cat <<'EOF'
 lemux — tmux-native navigator for branched Claude Code sessions
 
-  lemux start [name]     enter a topic — resumes it if it exists, creates it if not
+  lemux start <name>     enter a topic — resumes it if it exists, creates it if not
   lemux tree <pane>      fzf navigator over that session's own side quests
   lemux ls               print every tracked tree
   lemux ask <pane>       branch popup: copied text + a question
   lemux branch <pane>    fork the pane's session (--text <excerpt> --ask <q>)
   lemux jump <id>        focus a branch, reviving its window if closed
-  lemux rm <id>          delete a branch + its subtree (transcripts too)
+  lemux rm <name|id>     branch: delete it + its subtree (transcripts too)
+                         topic name: untrack the topic — side-quest transcripts
+                         are deleted, the root conversation is kept
   lemux init             print tmux keybindings (append to ~/.tmux.conf)
 
 Typical flow: lemux start → chat → select text with the mouse and hit cmd-C →

@@ -49,8 +49,15 @@ lemux start litefs        # in a tmux pane: enter the "litefs" topic
 
 `start` is enter-or-create: a new name starts a fresh claude session; a name
 you've used before takes you back to that topic — jumping to its window if
-it's open, resuming the conversation if not. `lemux ls` lists every topic if
-you forget a name.
+it's open, resuming the conversation if not. The name is required, and topic
+names are unique by construction: the same name always means the same topic.
+`lemux ls` lists every topic if you forget one.
+
+To stop tracking a topic entirely, `lemux rm <name>`: its windows close, its
+side-quest transcripts are deleted, and the root conversation is kept on disk
+(it's yours — visible in `claude --resume`), just no longer lemux's business.
+`lemux rm` on a branch id (or `prefix + X` inside one) deletes that side
+quest and its subtree, transcripts included.
 
 Open windows follow a path discipline: they are only ever the chain you're
 inside (root → side quest → deeper side quest). Exiting a session's claude
@@ -108,8 +115,8 @@ branches. Navigating is about *this* conversation, not about managing sessions.
 ## Notes
 
 - **Deleting**: `rm` on a branch deletes its tmux window, its transcript file,
-  and its entire subtree. Root sessions are protected — `--force` removes a
-  root from lemux tracking but always keeps its transcript.
+  and its entire subtree. `rm` on a topic name untracks the topic but always
+  keeps the root transcript.
 - **Forks are cheap**: a fork shares its full prefix with the parent, so the
   first message usually hits Anthropic's prompt cache.
 - **Where the excerpt comes from**: the system clipboard (`pbpaste`), falling
