@@ -50,7 +50,7 @@ lemux start litefs        # in a tmux pane: starts a tracked claude session
 | Keys | Action |
 |------|--------|
 | select text, copy it, `prefix + B` | **Branch**: fork this session into a new window, seeded with what you copied |
-| `prefix + T` | **Tree**: fzf navigator — type to filter, enter to jump, `ctrl-x` to delete |
+| `prefix + T` | **Tree**: this session's side quests — type to filter, enter to jump, `ctrl-x` to delete |
 | `prefix + X` | **Delete** the current pane's branch and its whole subtree |
 
 The flow: while reading an assistant response, select the sentence you want to
@@ -79,7 +79,10 @@ Hit enter on an empty question instead and the branch opens with just the
 excerpt waiting in the input box, for you to type there.
 
 Go as deep as you like — branch the branch, branch a different excerpt of the
-same message, whatever. `prefix + T` shows where you are:
+same message, whatever. `prefix + T` shows where you are. It only ever shows
+the tree you're currently in: from any window — the root or a side quest six
+levels down — you see that root and its descendants, never another topic's
+branches. Navigating is about *this* conversation, not about managing sessions.
 
 ```
 ● litefs

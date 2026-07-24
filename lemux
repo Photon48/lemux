@@ -34,6 +34,13 @@ jq_update() {
 
 node_field() { jq -r --arg id "$1" ".[] | select(.id==\$id) | .$2 // \"\"" "$TREE"; }
 
+# The session a side quest ultimately hangs off — the navigator's scope.
+root_of() {
+  local id="$1" p
+  while p=$(node_field "$id" parent); [[ -n "$p" ]]; do id="$p"; done
+  printf '%s' "$id"
+}
+
 add_node() { # id parent name excerpt dir
   jq_update --arg id "$1" --arg parent "$2" --arg name "$3" \
     --arg excerpt "$4" --arg dir "$5" --argjson created "$(date +%s)" \
@@ -174,9 +181,9 @@ cmd_ask() { # <pane_id> — popup: confirm the copied excerpt, type a question, 
   cmd_branch "$pane" --text "$excerpt" --ask "$question"
 }
 
-cmd__askpopup() { # <pane_id> — open the branch popup (called from the tmux binding)
-  tmux display-popup -E -w 78% -h 45% \
-    "$(printf '%q' "$SELF") ask $(printf '%q' "${1:?}")"
+cmd__popup() { # <width> <height> <subcommand> <pane_id> — called from the tmux bindings
+  tmux display-popup -E -w "${1:?}" -h "${2:?}" \
+    "$(printf '%q' "$SELF") ${3:?} $(printf '%q' "${4:?}")"
 }
 
 cmd__run() { # id dir mode [parent] — wrapper that tags the pane and execs claude
@@ -196,8 +203,12 @@ cmd__run() { # id dir mode [parent] — wrapper that tags the pane and execs cla
   esac
 }
 
-cmd__list() { # tab-separated: id <TAB> rendered tree line
+cmd__list() { # [root_id] — tab-separated: id <TAB> rendered tree line
   init_state
+  if [[ -n "${1:-}" ]]; then
+    _walk "$1" "" root
+    return 0
+  fi
   local r
   for r in $(jq -r '[.[] | select(.parent=="")] | sort_by(.created) | .[].id' "$TREE"); do
     _walk "$r" "" root
@@ -223,16 +234,19 @@ _walk() { # id prefix position(root|mid|last)
   done
 }
 
-cmd_tree() { # fzf navigator: enter jumps, ctrl-x deletes
+cmd_tree() { # <pane_id> — fzf navigator over this session's own side quests
   init_state
-  [[ "$(jq length "$TREE")" -gt 0 ]] || die "no sessions yet — run: lemux start"
-  local q self out
+  local pane="${1:?usage: lemux tree <pane_id>}" cur root self out
+  cur=$(tmux display-message -t "$pane" -p '#{@lemux_session}' 2>/dev/null || true)
+  [[ -n "$cur" ]] || popup_die "this pane is not a lemux session — start one with: lemux start"
+  root=$(root_of "$cur")
+  [[ -n "$(node_field "$root" name)" ]] || popup_die "unknown session $cur"
   self=$(printf '%q' "$SELF")
-  out=$(cmd__list | fzf --delimiter='\t' --with-nth=2 --no-sort --layout=reverse \
+  out=$(cmd__list "$root" | fzf --delimiter='\t' --with-nth=2 --no-sort --layout=reverse \
     --prompt='lemux> ' \
     --header='enter: jump · ctrl-x: delete branch · esc: close' \
     --preview="$self _preview {1}" --preview-window=right,55%,wrap \
-    --bind="ctrl-x:execute-silent($self rm {1})+reload($self _list)") || return 0
+    --bind="ctrl-x:execute-silent($self rm {1})+reload($self _list $root)") || return 0
   cmd_jump "${out%%$'\t'*}"
 }
 
@@ -340,8 +354,8 @@ cmd_init() { # print tmux keybindings (absolute paths — PATH-proof)
 # prefix + B          branch on the text you just copied (select + cmd-C first)
 # prefix + T          open the branch tree navigator
 # prefix + X          delete the current pane's branch (+ subtree)
-bind-key B run-shell "$self _askpopup '#{pane_id}'"
-bind-key T display-popup -E -w 85% -h 70% "$self tree"
+bind-key B run-shell "$self _popup 78% 45% ask '#{pane_id}'"
+bind-key T run-shell "$self _popup 85% 70% tree '#{pane_id}'"
 bind-key X confirm-before -p "lemux: delete this branch and its subtree? (y/n)" "run-shell \"$self rm --pane '#{pane_id}'\""
 # <<< lemux <<<
 EOF
@@ -352,8 +366,8 @@ cmd_help() {
 lemux — tmux-native navigator for branched Claude Code sessions
 
   lemux start [name]     start a tracked root claude session in this pane
-  lemux tree             fzf tree navigator (enter: jump, ctrl-x: delete)
-  lemux ls               print the tree
+  lemux tree <pane>      fzf navigator over that session's own side quests
+  lemux ls               print every tracked tree
   lemux ask <pane>       branch popup: copied text + a question
   lemux branch <pane>    fork the pane's session (--text <excerpt> --ask <q>)
   lemux jump <id>        focus a branch, reviving its window if closed
@@ -378,7 +392,7 @@ case "${1:-help}" in
   ls)       shift; cmd_ls "$@" ;;
   init)     shift; cmd_init "$@" ;;
   _list)    shift; cmd__list "$@" ;;
-  _askpopup) shift; cmd__askpopup "$@" ;;
+  _popup)   shift; cmd__popup "$@" ;;
   _type)    shift; cmd__type "$@" ;;
   _preview) shift; cmd__preview "$@" ;;
   _run)     shift; cmd__run "$@" ;;
