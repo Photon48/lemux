@@ -221,33 +221,38 @@ cmd__run() { # id dir mode [parent] — wrapper that tags the pane and execs cla
     --arg win "$(tmux display-message -p '#{window_id}')" \
     --arg pane "${TMUX_PANE:-}" \
     'map(if .id==$id then .window=$win | .pane=$pane else . end)'
-  # Side quests just run. Roots run in the foreground so that when claude
-  # exits, the topic's side-quest windows are swept away with it — the tree
-  # and transcripts stay, so 'lemux start <name>' brings it all back.
-  if [[ -n "$(node_field "$id" parent)" ]]; then
-    case "$mode" in
-      fork)   exec "$CLAUDE_BIN" --resume "$parent" --fork-session --session-id "$id" ;;
-      revive) exec "$CLAUDE_BIN" --resume "$id" ;;
-      *)      die "unknown run mode for a branch: $mode" ;;
-    esac
-  fi
+  local args rc=0
   case "$mode" in
-    new)    "$CLAUDE_BIN" --session-id "$id" || true ;;
-    revive) "$CLAUDE_BIN" --resume "$id" || true ;;
-    *)      die "unknown run mode for a root: $mode" ;;
+    new)    args=(--session-id "$id") ;;
+    fork)   args=(--resume "$parent" --fork-session --session-id "$id") ;;
+    revive) args=(--resume "$id") ;;
+    *)      die "unknown run mode: $mode" ;;
   esac
-  local n win all
-  for n in $(descendants "$id"); do
-    [[ "$n" == "$id" ]] && continue
+  "$CLAUDE_BIN" "${args[@]}" || rc=$?
+  ((rc)) && exit "$rc"   # remain-on-exit keeps the pane so the error stays readable
+
+  # Exiting walks you back up the path. Open windows are only ever the chain
+  # you're inside (root → … → here), so on exit everything in this topic
+  # that isn't an ancestor of where you land is closed. State and
+  # transcripts survive — the tree revives any of it.
+  local keep=" " p n win pruned
+  p=$(node_field "$id" parent)
+  n="$p"; while [[ -n "$n" ]]; do keep+="$n "; n=$(node_field "$n" parent); done
+  pruned=""
+  for n in $(descendants "$(root_of "$id")"); do
+    [[ "$keep" == *" $n "* ]] && continue
+    pruned+="$n"$'\n'
+    [[ "$n" == "$id" ]] && continue   # our own window closes when we exit
     win=$(node_field "$n" window)
     window_alive "$win" && tmux kill-window -t "$win" 2>/dev/null || true
   done
-  # This pane becomes a plain shell again; without clearing the stale
-  # window records, 'lemux start' would mistake it for a live topic.
-  all=$(descendants "$id" | jq -R . | jq -s .)
-  jq_update --argjson ids "$all" \
+  jq_update --argjson ids "$(printf '%s' "$pruned" | jq -R . | jq -s .)" \
     'map(if (.id as $i | $ids | index($i)) then .window="" | .pane="" else . end)'
   tmux set-option -p -u @lemux_session 2>/dev/null || true
+  if [[ -n "$p" ]]; then
+    win=$(node_field "$p" window)
+    window_alive "$win" && tmux select-window -t "$win" 2>/dev/null || true
+  fi
 }
 
 cmd__list() { # [root_id] — tab-separated: id <TAB> rendered tree line

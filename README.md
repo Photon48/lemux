@@ -49,11 +49,15 @@ lemux start litefs        # in a tmux pane: enter the "litefs" topic
 
 `start` is enter-or-create: a new name starts a fresh claude session; a name
 you've used before takes you back to that topic — jumping to its window if
-it's open, resuming the conversation if not. When you exit a topic's root
-claude, its side-quest windows are swept away with it; the tree and every
-transcript survive, so `lemux start litefs` later brings the whole topic
-back, side quests revivable from `prefix + T`. (`lemux ls` lists every topic
-if you forget a name.)
+it's open, resuming the conversation if not. `lemux ls` lists every topic if
+you forget a name.
+
+Open windows follow a path discipline: they are only ever the chain you're
+inside (root → side quest → deeper side quest). Exiting a session's claude
+walks you back up — you land on its parent, and every window in the topic
+below that level closes, including sibling side quests you'd opened earlier.
+The tree and every transcript survive pruning, so anything closed is one
+`prefix + T`, enter away; exiting the root closes the whole topic.
 
 | Keys | Action |
 |------|--------|
