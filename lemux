@@ -87,6 +87,13 @@ window_alive() {
   [[ -n "$1" ]] && tmux list-windows -a -F '#{window_id}' 2>/dev/null | grep -qx "$1"
 }
 
+# Focus a window even when it lives in another tmux session: make it that
+# session's current window, then bring the client over to it.
+focus_window() {
+  tmux select-window -t "$1" 2>/dev/null || return 0
+  tmux switch-client -t "$1" 2>/dev/null || true
+}
+
 # Session state, ground truth from Claude Code's own lifecycle hooks
 # (injected at launch via --settings): busy while a turn is running,
 # waiting at a permission/elicitation dialog, idle between turns.
@@ -183,7 +190,7 @@ cmd_start() { # <name> — enter a topic: resume the root if it exists, create i
   if [[ -n "$id" ]]; then
     win=$(node_field "$id" window)
     if window_alive "$win"; then
-      tmux select-window -t "$win"
+      focus_window "$win"
       return 0
     fi
     mode=revive
@@ -300,7 +307,7 @@ cmd__run() { # id dir mode [parent] — wrapper that tags the pane and execs cla
   tmux set-option -p -u @lemux_session 2>/dev/null || true
   if [[ -n "$p" ]]; then
     win=$(node_field "$p" window)
-    window_alive "$win" && tmux select-window -t "$win" 2>/dev/null || true
+    window_alive "$win" && focus_window "$win" || true
   fi
 }
 
@@ -357,7 +364,7 @@ cmd_jump() { # id — focus the branch's window, reviving it if closed
   local id="${1:?usage: lemux jump <id>}" win
   win=$(node_field "$id" window)
   if window_alive "$win"; then
-    tmux select-window -t "$win"
+    focus_window "$win"
   else
     local dir name
     dir=$(node_field "$id" dir)
