@@ -189,6 +189,8 @@ cmd__type() { # pane seedfile submit — wait for claude's input box, then type
 
 cmd__name() { # id promptfile — background: haiku writes the branch brief {name, diverge}
   local id="$1" f="$2" out name diverge win sys
+  # bash 3.2 scans this whole $(…) naively, counting quotes even inside the
+  # heredoc — keep its apostrophes paired or the sed backticks below misparse
   sys=$(cat <<'PROMPT'
 A side quest is being branched off a parent AI conversation. The user highlighted a passage of the assistant's message and/or typed a question, steering the exploration somewhere new. You write the branch's brief.
 
@@ -207,7 +209,9 @@ Your entire reply is one raw JSON object — it starts with { and ends with }, n
 
 Rules:
 - the sentence must read as natural english after its opening verb
-- name the concrete subject, preferring the user's own framing from their highlight and question; no code or formulas
+- the highlight and question choose the destination: resolve what the highlighted phrase refers to and make that — asked about the way the user asked about it — your sentence's subject; no code or formulas
+- the rest of the assistant response only exists to decode references; a topic it covers that the highlight and question do not touch must not appear in your sentence
+- the sentence must stand alone: the user re-reads it days later without the conversation, so spell the referent out in plain words — never echo a bare heading or shorthand like "the split" or "this part" whose meaning lives in the parent conversation
 - forward-looking: the direction of travel, never a summary of what the assistant already said
 - if the input lists earlier steps of this exploration, your sentence CONTINUES that story like the next storyteller in a relay — never restate an earlier step and never reuse its opening verb
 
