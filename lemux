@@ -76,11 +76,12 @@ descendants() { # id — print the id and every descendant id, one per line (BFS
   done
 }
 
-add_node() { # id parent name excerpt dir
+add_node() { # id parent name excerpt dir [question]
   jq_update --arg id "$1" --arg parent "$2" --arg name "$3" \
-    --arg excerpt "$4" --arg dir "$5" --argjson created "$(date +%s)" \
-    '. + [{id:$id, parent:$parent, name:$name, excerpt:$excerpt, dir:$dir,
-           created:$created, window:"", pane:""}]'
+    --arg excerpt "$4" --arg dir "$5" --arg question "${6:-}" \
+    --argjson created "$(date +%s)" \
+    '. + [{id:$id, parent:$parent, name:$name, excerpt:$excerpt, question:$question,
+           dir:$dir, created:$created, window:"", pane:""}]'
 }
 
 window_alive() {
@@ -186,17 +187,49 @@ cmd__type() { # pane seedfile submit — wait for claude's input box, then type
   fi
 }
 
-cmd__name() { # id promptfile — background: ask haiku for a 1-4 word name, rename node + window
-  local id="$1" f="$2" name win
-  name=$("$CLAUDE_BIN" -p --model claude-haiku-4-5 \
-    --system-prompt 'Name the side-quest conversation being branched here. Output ONLY a 1-4 word lowercase name, nothing else.' \
+cmd__name() { # id promptfile — background: haiku writes the branch brief {name, diverge}
+  local id="$1" f="$2" out name diverge win sys
+  sys=$(cat <<'PROMPT'
+A side quest is being branched off a parent AI conversation. The user highlighted a passage of the assistant's message and/or typed a question, steering the exploration somewhere new. You write the branch's brief.
+
+Your entire reply is one raw JSON object — it starts with { and ends with }, no fences, no commentary:
+{"name": "...", "diverge": "..."}
+
+"name" — a 1-4 word lowercase name for the branch's tmux window.
+
+"diverge" — ONE sentence, lowercase, no trailing period, 10-18 words, stating where this new exploration is heading. It opens with a motion verb chosen by the kind of move the user is making:
+- doubting or stress-testing a claim → testing, probing, pressure-testing
+- asking how or why something works → tracing, unpacking, untangling
+- comparing options → weighing, pitting ... against ...
+- drilling into a term or detail → digging into, zooming in on, pinning down
+- sizing or benchmarking something → measuring, quantifying, simulating
+- wandering to a related topic → peeling off to, chasing, circling back to
+
+Rules:
+- the sentence must read as natural english after its opening verb
+- name the concrete subject, preferring the user's own framing from their highlight and question; no code or formulas
+- forward-looking: the direction of travel, never a summary of what the assistant already said
+- if the input lists earlier steps of this exploration, your sentence CONTINUES that story like the next storyteller in a relay — never restate an earlier step and never reuse its opening verb
+
+Examples of good diverge lines (each from a different conversation):
+- digging into how ramjet aircraft get off the ground when the engine is dead at standstill
+- weighing eventual consistency against the strict ordering the checkout flow quietly assumes
+- a continuation: after "untangling why the borrow checker rejects the iterator rewrite", the next branch wrote: chasing lifetime annotations that could convince it — or a restructure that sidesteps them
+PROMPT
+)
+  out=$("$CLAUDE_BIN" -p --model claude-haiku-4-5 \
+    --system-prompt "$sys" \
     --tools "" --strict-mcp-config --max-turns 1 \
     --setting-sources "" --no-session-persistence <"$f" 2>/dev/null |
-    head -1 | tr -cd '[:alnum:] -' |
-    awk '{for(i=1;i<=NF&&i<=4;i++)printf "%s%s",(i>1?" ":""),$i}') || name=""
+    sed 's/^```.*$//' | jq -c 'select(type=="object")' 2>/dev/null | head -1) || out=""
   rm -f "$f"
-  [[ -n "$name" ]] || return 0   # anything went wrong — the placeholder name stays
-  jq_update --arg id "$id" --arg n "$name" 'map(if .id==$id then .name=$n else . end)'
+  name=$(jq -r '.name // ""' <<<"$out" 2>/dev/null | tr -cd '[:alnum:] -' |
+    awk '{for(i=1;i<=NF&&i<=4;i++)printf "%s%s",(i>1?" ":""),$i}') || name=""
+  diverge=$(jq -r '.diverge // ""' <<<"$out" 2>/dev/null | collapse_ws | cut -c1-220) || diverge=""
+  [[ -n "$name$diverge" ]] || return 0   # anything went wrong — the placeholder name stays
+  jq_update --arg id "$id" --arg n "$name" --arg d "$diverge" \
+    'map(if .id==$id then ((if $n=="" then . else .name=$n end) + {diverge:$d}) else . end)'
+  [[ -n "$name" ]] || return 0
   win=$(node_field "$id" window)
   window_alive "$win" && tmux rename-window -t "$win" "$name" 2>/dev/null || true
 }
@@ -252,7 +285,7 @@ cmd_branch() { # <pane_id> [--text <excerpt>] [--ask <question>] — fork the pa
   id=$(new_uuid)
   name=$(printf '%s' "${question:-$excerpt}" | cut -c1-28 | tr -cd '[:print:]' | sed -E 's/^ +| +$//g')
   [[ -n "$name" ]] || name="branch"
-  add_node "$id" "$parent" "$name" "$excerpt" "$dir"
+  add_node "$id" "$parent" "$name" "$excerpt" "$dir" "$question"
 
   local newpane
   newpane=$(tmux new-window -c "$dir" -n "$name" -P -F '#{pane_id}' \
@@ -269,10 +302,13 @@ cmd_branch() { # <pane_id> [--text <excerpt>] [--ask <question>] — fork the pa
   [[ -n "$question" ]] && submit=1 || submit=0
   _prefill "$newpane" "$seed" "$submit"
 
-  # Name the branch properly in the background: the excerpt plus the assistant
-  # message it was highlighted from (empty excerpt matches the last message).
-  # The window opens under the placeholder and renames when haiku answers.
-  local ctx f
+  # Brief the branch in the background: haiku reads the excerpt plus the
+  # assistant message it was highlighted from (empty excerpt matches the last
+  # message) and writes {name, diverge} onto the node — written once, never
+  # updated, so the preview stands alone however the session evolves. For
+  # deeper branches the ancestors' diverge lines ride along so each new line
+  # continues the story instead of restarting it.
+  local ctx f chain="" n line
   ctx=$(jq -rs --arg ex "$excerpt" '
     [ .[] | select(.type=="assistant") | (.message.content // "")
       | (if type=="string" then .
@@ -280,11 +316,28 @@ cmd_branch() { # <pane_id> [--text <excerpt>] [--ask <question>] — fork the pa
       | gsub("\\s+"; " ") | select(. != "") ]
     | (map(select(contains($ex))) | last) // last // ""
   ' "$(session_file "$parent" "$dir")" 2>/dev/null | cut -c1-2400) || ctx=""
+  n="$parent"
+  while [[ -n "$n" ]]; do
+    line=$(node_field "$n" diverge)
+    [[ -z "$line" ]] || chain="- $line"$'\n'"$chain"
+    n=$(node_field "$n" parent)
+  done
+  # stash the highlight's surroundings so the preview can show it in place
+  local pre="" post=""
+  if [[ -n "$excerpt" && "$ctx" == *"$excerpt"* ]]; then
+    pre="${ctx%%"$excerpt"*}"
+    post="${ctx#*"$excerpt"}"
+    ((${#pre} <= 150)) || pre="…${pre:$((${#pre} - 150))}"
+    ((${#post} <= 150)) || post="${post:0:150}…"
+    jq_update --arg id "$id" --arg pre "$pre" --arg post "$post" \
+      'map(if .id==$id then . + {ctx_pre:$pre, ctx_post:$post} else . end)'
+  fi
   f=$(mktemp "$LEMUX_DIR/.name.XXXXXX")
   {
     printf 'A side quest is being branched from this assistant response:\n"%s"\n' "$ctx"
     [[ -z "$excerpt" ]] || printf 'The user highlighted: "%s"\n' "$excerpt"
     [[ -z "$question" ]] || printf 'Their question: "%s"\n' "$question"
+    [[ -z "$chain" ]] || printf 'Earlier steps of this exploration, oldest first:\n%s' "$chain"
   } >"$f"
   tmux run-shell -b "$(printf '%q' "$SELF") _name $(printf '%q' "$id") $(printf '%q' "$f")"
 }
@@ -403,7 +456,7 @@ cmd_tree() { # <pane_id> — fzf navigator over this session's own side quests
     --prompt='lemux> ' \
     --header='enter: jump · ctrl-x: delete branch · esc: close' \
     --preview="$self _preview {1}" --wrap-sign='  ' \
-    --preview-window=right,55%,wrap,border-left,follow,~3 \
+    --preview-window=right,55%,wrap,border-left \
     --bind="ctrl-x:execute-silent($self rm {1})+reload($self _list $root)") || return 0
   cmd_jump "${out%%$'\t'*}"
 }
@@ -467,11 +520,37 @@ cmd_rm() { # <topic-name | id> | --pane <pane_id> — delete a branch or untrack
   jq_update --argjson dead "$json_ids" 'map(select(.id as $i | $dead | index($i) | not))'
 }
 
-cmd__preview() { # id — sticky status card + compact transcript tail, for the fzf preview pane
+pwrap() { # firstprefix contprefix viswidth text — fold to the preview width with a hanging indent
+  local fp="$1" cp="$2" vis="$3" text="$4" body
+  body=$((${FZF_PREVIEW_COLUMNS:-72} - vis)); ((body >= 20)) || body=20
+  printf '%s' "$text" | fold -s -w "$body" | awk -v fp="$fp" -v cp="$cp" -v rs=$'\033[0m' \
+    '{sub(/ +$/, ""); print (NR==1 ? fp : cp) $0 rs}'
+}
+
+psnippet() { # pre excerpt post — the assistant text with the highlighted span marked, wrapped
+  local body
+  body=$((${FZF_PREVIEW_COLUMNS:-72} - 2)); ((body >= 20)) || body=20
+  printf '%s\001%s\002%s' "$1" "$2" "$3" | fold -s -w "$body" | awk \
+    -v fp=$'\033[33m❝\033[0m ' -v ci='  ' -v dim=$'\033[2m' -v hl=$'\033[30;43m' -v rs=$'\033[0m' '
+    BEGIN { mode = 0 }
+    {
+      sub(/ +$/, "")
+      printf "%s%s", (NR==1 ? fp : ci), (mode ? hl : dim)
+      s = $0
+      for (;;) {
+        a = index(s, "\001"); b = index(s, "\002")
+        if (a && (b == 0 || a < b)) { printf "%s%s%s", substr(s, 1, a-1), rs, hl;  s = substr(s, a+1); mode = 1 }
+        else if (b)                 { printf "%s%s%s", substr(s, 1, b-1), rs, dim; s = substr(s, b+1); mode = 0 }
+        else break
+      }
+      printf "%s%s\n", s, rs
+    }'
+}
+
+cmd__preview() { # id — the branch's diverge story + its steering inputs, for the fzf preview pane
   init_state
-  local id="${1:?}" name excerpt dir file state kids_json kids parent
+  local id="${1:?}" name dir file state kids parent
   name=$(node_field "$id" name)
-  excerpt=$(node_field "$id" excerpt)
   dir=$(node_field "$id" dir)
   parent=$(node_field "$id" parent)
   file=$(session_file "$id" "$dir")
@@ -484,53 +563,41 @@ cmd__preview() { # id — sticky status card + compact transcript tail, for the 
   else
     state=$'\033[2m○ closed\033[0m'
   fi
-  kids_json=$(jq -c --arg id "$id" \
-    '[.[] | select(.parent==$id) | {name, ex: ((.excerpt // "")
-      | gsub("[*`_#]"; "") | gsub("\\s+"; " ") | sub("^ "; "") | sub(" $"; ""))}]' "$TREE")
-  kids=$(jq length <<<"$kids_json")
-  # 3-line card, pinned by the preview window's ~3
+  kids=$(jq -r --arg id "$id" '[.[] | select(.parent==$id)] | length' "$TREE")
   printf '\033[1m%s\033[0m  %s' "$name" "$state"
   [[ -f "$file" ]] && printf ' · %s' "$(ago "$(stat -f %m "$file")")"
   if ((kids == 1)); then printf ' · 1 branch'
   elif ((kids > 1)); then printf ' · %s branches' "$kids"; fi
   printf '\n'
-  if [[ -n "$parent" ]]; then
-    [[ ${#excerpt} -gt 60 ]] && excerpt="${excerpt:0:60}…"
-    printf '\033[33m⑂\033[0m\033[2m from %s: “%s”\033[0m\n' "$(node_field "$parent" name)" "$excerpt"
-  else
-    printf '\033[2m%s\033[0m\n' "${dir/#$HOME/~}"
-  fi
-  printf '\033[2m┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄\033[0m\n'
-  if [[ ! -f "$file" ]]; then
-    printf '(no messages yet)\n'
+  if [[ -z "$parent" ]]; then
+    printf '\n\033[2m%s\033[0m\n' "${dir/#$HOME/~}"
     return 0
   fi
-  tail -n 400 "$file" | jq -rs --argjson kids "$kids_json" --arg esc $'\033' '
-    def norm: gsub("[*`_#]"; "") | gsub(" +"; " ");   # markdown-blind, for excerpt matching
-    [ .[]
-      | select((.type=="user" or .type=="assistant") and .isMeta != true)
-      | (.message.content // "") as $raw
-      | ((if ($raw|type)=="array"
-          then ([$raw[] | select(type=="object" and .type=="text") | .text] | join(" "))
-          elif ($raw|type)=="string" then $raw else "" end)
-         | gsub("\\s+"; " ")
-         | gsub("<system-reminder>.*?</system-reminder>"; "")
-         | gsub(" +"; " ") | sub("^ "; "") | sub(" $"; "")) as $c
-      | select($c != "" and (($c | test("^<(local-command|command-|bash-)")) | not))
-      # a child branched on text inside this message — mark the fork point
-      | ([$kids[] | select(.ex != "" and (.ex as $e | $c | norm | contains($e)))
-          | "\n  " + $esc + "[32m⑂ " + .name + $esc + "[0m"] | join("")) as $forks
-      | (if .type=="user"
-         then (if ($c|length) > 240 then ($c | .[0:240]) + "…" else $c end) as $t
-           | if $t | test("^Re \"[^\"]*\": ")
-             then ($t | capture("^Re \"(?<x>[^\"]*)\": *(?<q>.*)"))
-               | "\n" + $esc + "[33m⑂ “" + (.x | if length > 48 then .[0:48] + "…" else . end)
-                 + "”" + $esc + "[0m " + .q
-             else "\n" + $esc + "[1;36m❯" + $esc + "[0m " + $t end
-         else "  " + $esc + "[2m" + (if ($c|length) > 200 then ($c | .[0:200]) + "…" else $c end)
-              + $esc + "[0m" end) + $forks
-    ] | .[-8:] | if . == [] then "(no messages yet)" else join("\n") | sub("^\n"; "") end
-  ' 2>/dev/null || printf '(could not parse transcript)\n'
+  # the cascade: ancestors' diverge lines (dim) then our own, one relay step
+  # per level — each was written once at branch time and never updated
+  local chain="" n indent="" line printed=0 open
+  local mk=$'\033[33m⑂\033[0m ' dm=$'\033[2m'
+  n="$id"
+  while [[ -n "$n" ]]; do chain="$n $chain"; n=$(node_field "$n" parent); done
+  for n in $chain; do
+    line=$(node_field "$n" diverge)
+    [[ -n "$line" ]] || continue
+    ((printed)) || { printf '\033[2m┄┄ story so far ┄┄┄┄┄┄┄┄┄\033[0m\n'; printed=1; }
+    open=$dm; [[ "$n" == "$id" ]] && open=""
+    pwrap "$indent$mk$open" "$indent  $open" $((${#indent} + 2)) "$line"
+    indent+=" "
+  done
+  # the steering inputs: the highlight shown in place, the question verbatim
+  local excerpt question
+  excerpt=$(node_field "$id" excerpt)
+  question=$(node_field "$id" question)
+  [[ ${#excerpt} -gt 300 ]] && excerpt="${excerpt:0:300}…"
+  if [[ -n "$excerpt$question" ]]; then
+    printf '\033[2m┄┄ branched on ┄┄┄┄┄┄┄┄┄┄\033[0m\n'
+    [[ -z "$excerpt" ]] || psnippet "$(node_field "$id" ctx_pre)" "$excerpt" "$(node_field "$id" ctx_post)"
+    [[ -z "$question" ]] || pwrap $'\033[1;36m❯\033[0m \033[2masked\033[0m  ' '         ' 9 "$question"
+  fi
+  return 0
 }
 
 cmd_ls() { cmd__list | cut -f2-; }
