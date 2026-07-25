@@ -109,19 +109,36 @@ ago() { # epoch → "5m ago"
   else echo "$((d / 86400))d ago"; fi
 }
 
+hook_block() { # the lifecycle hooks JSON — shared by hooks.json and `lemux enable`
+  jq -n --arg s "$(printf '%q' "$SELF")" '{
+    SessionStart:      [{hooks: [{type: "command", command: ($s + " _hello")}]}],
+    UserPromptSubmit:  [{hooks: [{type: "command", command: ($s + " _state busy")}]}],
+    PreToolUse:        [{hooks: [{type: "command", command: ($s + " _state busy")}]}],
+    PermissionRequest: [{hooks: [{type: "command", command: ($s + " _state waiting")}]}],
+    Elicitation:       [{hooks: [{type: "command", command: ($s + " _state waiting")}]}],
+    Stop:              [{hooks: [{type: "command", command: ($s + " _state idle")}]}],
+    StopFailure:       [{hooks: [{type: "command", command: ($s + " _state idle")}]}],
+    SessionEnd:        [{hooks: [{type: "command", command: ($s + " _state gone")}]}]
+  }'
+}
+
 ensure_hooks() { # write the per-launch settings that report state back to us
-  local c
-  c="$(printf '%q' "$SELF") _state"
-  jq -n --arg c "$c" '{hooks: {
-    SessionStart:      [{hooks: [{type: "command", command: ($c + " idle")}]}],
-    UserPromptSubmit:  [{hooks: [{type: "command", command: ($c + " busy")}]}],
-    PreToolUse:        [{hooks: [{type: "command", command: ($c + " busy")}]}],
-    PermissionRequest: [{hooks: [{type: "command", command: ($c + " waiting")}]}],
-    Elicitation:       [{hooks: [{type: "command", command: ($c + " waiting")}]}],
-    Stop:              [{hooks: [{type: "command", command: ($c + " idle")}]}],
-    StopFailure:       [{hooks: [{type: "command", command: ($c + " idle")}]}],
-    SessionEnd:        [{hooks: [{type: "command", command: ($c + " gone")}]}]
-  }}' >"$LEMUX_DIR/hooks.json"
+  jq -n --argjson h "$(hook_block)" '{hooks: $h}' >"$LEMUX_DIR/hooks.json"
+}
+
+cmd_enable() { # merge the hooks into ~/.claude/settings.json so ANY claude session
+  # in tmux tags its pane — plain claude, --continue, --resume, all branchable.
+  local settings="$HOME/.claude/settings.json" tmp
+  mkdir -p "$HOME/.claude"
+  [[ -s "$settings" ]] || echo '{}' >"$settings"
+  tmp=$(mktemp "$HOME/.claude/.settings.XXXXXX")
+  jq --argjson ours "$(hook_block)" '
+    def scrubbed: map(select([.hooks[]?.command // ""]
+      | any(test("lemux\\S* _(hello|state)")) | not));
+    .hooks = ((.hooks // {}) as $h
+      | $h + ($ours | with_entries(.value = ((($h[.key] // []) | scrubbed) + .value))))
+  ' "$settings" >"$tmp" && mv "$tmp" "$settings"
+  echo "lemux: hooks merged into $settings — claude sessions in tmux are now branchable (restart any already running)"
 }
 
 cmd__state() { # <state> — hook callback; session_id arrives on stdin as JSON
@@ -133,6 +150,29 @@ cmd__state() { # <state> — hook callback; session_id arrives on stdin as JSON
     rm -f "$LEMUX_DIR/state/$sid"
   else
     printf '%s' "$s" >"$LEMUX_DIR/state/$sid"
+  fi
+}
+
+cmd__hello() { # SessionStart hook: mark idle and tag the pane, so every claude
+  # session in tmux — however it was started — is branchable. Re-fires on
+  # /clear and resume, so the tag always names the session actually running.
+  init_state
+  local json sid cwd
+  json=$(cat 2>/dev/null || true)
+  sid=$(jq -r '.session_id // ""' <<<"$json" 2>/dev/null) || sid=""
+  [[ -n "$sid" ]] || exit 0
+  mkdir -p "$LEMUX_DIR/state"
+  printf 'idle' >"$LEMUX_DIR/state/$sid"
+  [[ -n "${TMUX:-}" && -n "${TMUX_PANE:-}" ]] || exit 0
+  cwd=$(jq -r '.cwd // ""' <<<"$json" 2>/dev/null) || cwd=""
+  tmux set-option -p -t "$TMUX_PANE" @lemux_session "$sid" 2>/dev/null || true
+  [[ -z "$cwd" ]] || tmux set-option -p -t "$TMUX_PANE" @lemux_dir "$cwd" 2>/dev/null || true
+  # a known node resumed by hand (claude --resume) — reattach it to this window
+  if [[ -n "$(node_field "$sid" name)" ]]; then
+    jq_update --arg id "$sid" \
+      --arg win "$(tmux display-message -t "$TMUX_PANE" -p '#{window_id}')" \
+      --arg pane "$TMUX_PANE" \
+      'map(if .id==$id then .window=$win | .pane=$pane else . end)'
   fi
 }
 
@@ -240,28 +280,24 @@ PROMPT
 
 # ---------- commands ----------
 
-cmd_start() { # <name> — enter a topic: resume the root if it exists, create it if not
-  [[ -n "${TMUX:-}" ]] || die "start must be run inside tmux"
-  init_state
-  local name="${1:-}" id win mode
-  [[ -n "$name" ]] || die "usage: lemux start <name>   (lemux ls shows existing topics)"
-  id=$(jq -r --arg n "$name" --arg d "$PWD" \
-    '[.[] | select(.parent=="" and .name==$n and .dir==$d)] | first // {} | .id // ""' "$TREE")
-  if [[ -n "$id" ]]; then
-    win=$(node_field "$id" window)
-    if window_alive "$win"; then
-      focus_window "$win"
-      return 0
-    fi
-    mode=revive
-    [[ -f "$(session_file "$id" "$(node_field "$id" dir)")" ]] || mode=new
-    tmux rename-window "$name"
-    exec "$SELF" _run "$id" "$(node_field "$id" dir)" "$mode"
-  fi
-  id=$(new_uuid)
-  add_node "$id" "" "$name" "" "$PWD"
-  tmux rename-window "$name"
-  exec "$SELF" _run "$id" "$PWD" new
+pane_session() { # pane — the claude session id its hooks reported
+  tmux display-message -t "$1" -p '#{@lemux_session}' 2>/dev/null || true
+}
+
+pane_dir() { # pane — where the pane's claude session lives
+  tmux display-message -t "$1" -p '#{@lemux_dir}' 2>/dev/null || true
+}
+
+adopt_root() { # id pane — a session's first branch declares it a topic root in
+  # ~/.lemux, named after its folder. This is the only way roots come to exist.
+  local id="$1" pane="$2" dir
+  dir=$(pane_dir "$pane")
+  [[ -n "$dir" ]] || dir=$(tmux display-message -t "$pane" -p '#{pane_current_path}' 2>/dev/null || true)
+  [[ -n "$dir" ]] || return 1
+  add_node "$id" "" "$(basename "$dir")" "" "$dir"
+  jq_update --arg id "$id" \
+    --arg win "$(tmux display-message -t "$pane" -p '#{window_id}')" --arg pane "$pane" \
+    'map(if .id==$id then .window=$win | .pane=$pane else . end)'
 }
 
 cmd_branch() { # <pane_id> [--text <excerpt>] [--ask <question>] — fork the pane's session
@@ -280,10 +316,14 @@ cmd_branch() { # <pane_id> [--text <excerpt>] [--ask <question>] — fork the pa
   [[ -n "$excerpt$question" ]] || die "nothing to branch on — select some text and copy it first"
 
   local parent dir id name
-  parent=$(tmux display-message -t "$pane" -p '#{@lemux_session}' 2>/dev/null || true)
-  [[ -n "$parent" ]] || die "this pane is not a lemux session (start one with: lemux start)"
+  parent=$(pane_session "$pane")
+  [[ -n "$parent" ]] || die "no claude session in this pane — is one running? (new setup: lemux enable, then restart claude)"
   dir=$(node_field "$parent" dir)
-  [[ -n "$dir" ]] || die "unknown parent session $parent"
+  if [[ -z "$dir" ]]; then
+    # plain claude session (started without lemux) — its first branch enrols it
+    adopt_root "$parent" "$pane" || die "cannot tell where this session lives — restart claude and retry"
+    dir=$(node_field "$parent" dir)
+  fi
   [[ -f "$(session_file "$parent" "$dir")" ]] || die "nothing to branch yet — send at least one message first"
 
   id=$(new_uuid)
@@ -349,15 +389,18 @@ cmd_branch() { # <pane_id> [--text <excerpt>] [--ask <question>] — fork the pa
 cmd_ask() { # <pane_id> — popup: confirm the copied excerpt, type a question, branch
   init_state
   local pane="${1:?usage: lemux ask <pane_id>}" parent dir excerpt question shown
-  parent=$(tmux display-message -t "$pane" -p '#{@lemux_session}' 2>/dev/null || true)
-  [[ -n "$parent" ]] || popup_die "this pane is not a lemux session — start one with: lemux start"
+  parent=$(pane_session "$pane")
+  [[ -n "$parent" ]] || popup_die "no claude session in this pane — new setup? run: lemux enable, then restart claude"
   dir=$(node_field "$parent" dir)
-  [[ -n "$dir" ]] || popup_die "unknown parent session"
+  [[ -n "$dir" ]] || dir=$(pane_dir "$pane")
+  [[ -n "$dir" ]] || popup_die "cannot tell where this session lives — restart claude and retry"
   [[ -f "$(session_file "$parent" "$dir")" ]] || popup_die "nothing to branch yet — send at least one message first"
 
   excerpt=$(get_clip | collapse_ws)
-  local hdr rc=0
-  hdr="branch a side quest  (from $(node_field "$parent" name))"$'\n'
+  local hdr rc=0 from
+  from=$(node_field "$parent" name)
+  [[ -n "$from" ]] || from=$(basename "$dir")
+  hdr="branch a side quest  (from $from)"$'\n'
   if [[ -n "$excerpt" ]]; then
     shown=$(printf '%s' "$excerpt" | cut -c1-240)
     [[ "${#excerpt}" -gt 240 ]] && shown="$shown…"
@@ -390,7 +433,6 @@ cmd__run() { # id dir mode [parent] — wrapper that tags the pane and execs cla
     'map(if .id==$id then .window=$win | .pane=$pane else . end)'
   local args rc=0
   case "$mode" in
-    new)    args=(--session-id "$id") ;;
     fork)   args=(--resume "$parent" --fork-session --session-id "$id") ;;
     revive) args=(--resume "$id") ;;
     *)      die "unknown run mode: $mode" ;;
@@ -415,18 +457,9 @@ cmd__run() { # id dir mode [parent] — wrapper that tags the pane and execs cla
   fi
 }
 
-cmd__list() { # [root_id] — tab-separated: id <TAB> rendered tree line
+cmd__list() { # <root_id> — tab-separated: id <TAB> rendered tree line
   init_state
-  if [[ -n "${1:-}" ]]; then
-    _walk "$1" "" root
-    return 0
-  fi
-  # Topics are per-folder, like claude --resume: list only this folder's.
-  local r
-  for r in $(jq -r --arg d "$PWD" \
-      '[.[] | select(.parent=="" and .dir==$d)] | sort_by(.created) | .[].id' "$TREE"); do
-    _walk "$r" "" root
-  done
+  _walk "${1:?}" "" root
 }
 
 _walk() { # id prefix position(root|mid|last)
@@ -451,10 +484,10 @@ _walk() { # id prefix position(root|mid|last)
 cmd_tree() { # <pane_id> — fzf navigator over this session's own side quests
   init_state
   local pane="${1:?usage: lemux tree <pane_id>}" cur root self out
-  cur=$(tmux display-message -t "$pane" -p '#{@lemux_session}' 2>/dev/null || true)
-  [[ -n "$cur" ]] || popup_die "this pane is not a lemux session — start one with: lemux start"
+  cur=$(pane_session "$pane")
+  [[ -n "$cur" ]] || popup_die "no claude session in this pane — new setup? run: lemux enable, then restart claude"
   root=$(root_of "$cur")
-  [[ -n "$(node_field "$root" name)" ]] || popup_die "unknown session $cur"
+  [[ -n "$(node_field "$root" name)" ]] || popup_die "no side quests yet — copy some text and branch with prefix+B first"
   self=$(printf '%q' "$SELF")
   out=$(cmd__list "$root" | fzf --delimiter='\t' --with-nth=2 --no-sort --layout=reverse \
     --prompt='lemux> ' \
@@ -487,7 +520,7 @@ cmd_rm() { # <topic-name | id> | --pane <pane_id> — delete a branch or untrack
   local id=""
   while (($#)); do
     case "$1" in
-      --pane) shift; id=$(tmux display-message -t "${1:?}" -p '#{@lemux_session}' 2>/dev/null || true) ;;
+      --pane) shift; id=$(pane_session "${1:?}") ;;
       *)      id="$1" ;;
     esac
     shift
@@ -604,8 +637,6 @@ cmd__preview() { # id — the branch's diverge story + its steering inputs, for 
   return 0
 }
 
-cmd_ls() { cmd__list | cut -f2-; }
-
 cmd_init() { # print tmux keybindings (absolute paths — PATH-proof)
   local self
   self=$(printf '%q' "$SELF")
@@ -626,9 +657,11 @@ cmd_help() {
   cat <<'EOF'
 lemux — tmux-native navigator for branched Claude Code sessions
 
-  lemux start <name>     enter a topic — resumes it if it exists, creates it if not
+Any claude session inside tmux is branchable — plain claude, --continue,
+--resume, whatever. Its first branch (prefix+B) enrols it as a topic.
+
+  lemux enable           install the claude hooks (once — install.sh does this)
   lemux tree <pane>      fzf navigator over that session's own side quests
-  lemux ls               print this folder's topics (like claude --resume)
   lemux ask <pane>       branch popup: copied text + a question
   lemux branch <pane>    fork the pane's session (--text <excerpt> --ask <q>)
   lemux jump <id>        focus a branch, reviving its window if closed
@@ -637,23 +670,23 @@ lemux — tmux-native navigator for branched Claude Code sessions
                          are deleted, the root conversation is kept
   lemux init             print tmux keybindings (append to ~/.tmux.conf)
 
-Typical flow: lemux start → chat → select text with the mouse and hit cmd-C →
-prefix+B, type your question → side quest opens as a fork with the full parent
-context → prefix+T to jump around → prefix+X to throw a side quest away.
+Typical flow: run claude in tmux → chat → select text with the mouse and hit
+cmd-C → prefix+B, type your question → side quest opens as a fork with the full
+parent context → prefix+T to jump around → prefix+X to throw a side quest away.
 EOF
 }
 
 # ---------- dispatch ----------
 
 case "${1:-help}" in
-  start)    shift; cmd_start "$@" ;;
+  enable)   shift; cmd_enable "$@" ;;
   branch)   shift; cmd_branch "$@" ;;
   ask)      shift; cmd_ask "$@" ;;
   tree)     shift; cmd_tree "$@" ;;
   jump)     shift; cmd_jump "$@" ;;
   rm)       shift; cmd_rm "$@" ;;
-  ls)       shift; cmd_ls "$@" ;;
   init)     shift; cmd_init "$@" ;;
+  _hello)   shift; cmd__hello "$@" ;;
   _list)    shift; cmd__list "$@" ;;
   _popup)   shift; cmd__popup "$@" ;;
   _type)    shift; cmd__type "$@" ;;

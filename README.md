@@ -26,6 +26,9 @@ lemux is ~300 lines of bash on top of things that already exist:
 
 The only state lemux keeps is `~/.lemux/tree.json`: one entry per session with
 its parent, the excerpt it branched on, and which tmux window it lives in.
+A `SessionStart` hook (installed once by `lemux enable`) makes every claude
+session tag its tmux pane with its session ID as it starts — that is how any
+session, however launched, is branchable with zero ceremony.
 
 ## Install
 
@@ -36,23 +39,22 @@ curl -fsSL https://raw.githubusercontent.com/Photon48/lemux/main/install.sh | ba
 ```
 
 Or from a checkout: `./install.sh`. Either way it copies `lemux` to
-`~/.local/bin`, writes the keybindings into `~/.tmux.conf` (idempotent —
-re-running replaces the block), and reloads tmux. Uninstall by deleting
-`~/.local/bin/lemux`, the `>>> lemux >>>` block in `~/.tmux.conf`, and
-`~/.lemux`.
+`~/.local/bin`, writes the keybindings into `~/.tmux.conf`, merges lemux's
+lifecycle hooks into `~/.claude/settings.json` (`lemux enable` — your own
+hooks and settings are untouched), and reloads tmux. Everything is idempotent —
+re-running replaces lemux's own entries and nothing else. Uninstall by deleting
+`~/.local/bin/lemux`, the `>>> lemux >>>` block in `~/.tmux.conf`, the hook
+entries mentioning `lemux` in `~/.claude/settings.json`, and `~/.lemux`.
 
 ## Use
 
-```sh
-lemux start litefs        # in a tmux pane: enter the "litefs" topic
-```
-
-`start` is enter-or-create: a new name starts a fresh claude session; a name
-you've used before takes you back to that topic — jumping to its window if
-it's open, resuming the conversation if not. The name is required, and topics
-are scoped to the folder you're in, exactly like `claude --resume`: within a
-folder the same name always means the same topic, and `lemux ls` lists that
-folder's topics.
+Run claude inside tmux — any way you like: plain `claude`, `--continue`,
+`--resume`, whatever. There is nothing to start and nothing to declare: every
+session announces itself to lemux as it starts, and the first time you branch
+from it (`prefix + B`) it is enrolled in `~/.lemux` as a topic root, named
+after its folder. From then on it's a normal lemux topic — tree, jumping,
+pruning, all of it. Topics are scoped to the folder they run in, exactly like
+`claude --resume`.
 
 To stop tracking a topic entirely, `lemux rm <name>`: its windows close, its
 side-quest transcripts are deleted, and the root conversation is kept on disk
@@ -70,8 +72,9 @@ exiting the root closes the whole topic. (Switching windows with tmux's own
 keys is tmux's business — lemux prunes only when it moves you.)
 
 Pruning never kills a session that's working or waiting on you. Every claude
-lemux launches carries hooks (injected per-session via `--settings`, your
-config untouched) that report its lifecycle: busy during a turn, waiting at a
+session carries lemux's hooks (merged into `~/.claude/settings.json` by
+`lemux enable`; lemux-launched sessions also get them injected via
+`--settings`) that report its lifecycle: busy during a turn, waiting at a
 permission or input dialog, idle between turns. Only idle windows are pruned.
 One known gap: Esc-cancelling a permission dialog emits no event, so that
 session stays "waiting" — spared — until you next interact with it.
@@ -133,7 +136,9 @@ branches. Navigating is about *this* conversation, not about managing sessions.
   back to tmux's paste buffer. Because lemux puts each branch in its own
   full-width *window* — never a split — native mouse selection can't pick up
   a neighbouring pane's text.
-- Sessions started with plain `claude` aren't branchable — lemux needs to
-  pre-assign the session ID, which is why you start roots with `lemux start`.
+- Sessions already running when you install (or update) lemux haven't
+  announced themselves yet — the SessionStart hook only fires on launch, so
+  restart claude in that pane (`claude --continue` picks up right where you
+  were) to make it branchable.
 - The excerpt pre-fill waits for claude's UI to render (up to ~15 s) before
   typing; it never presses enter, so nothing is ever auto-submitted.

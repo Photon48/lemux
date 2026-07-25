@@ -38,7 +38,10 @@ rm -f "$TMUX_CONF.lemux-bak"
 "$BIN" init >>"$TMUX_CONF"
 say "keybindings added to $TMUX_CONF"
 
-# 4. reload tmux if it's running
+# 4. claude hooks — every claude session in tmux becomes branchable
+"$BIN" enable
+
+# 5. reload tmux if it's running
 if tmux list-sessions >/dev/null 2>&1; then
   tmux source-file "$TMUX_CONF" && say "tmux config reloaded"
 fi
@@ -48,5 +51,5 @@ case ":$PATH:" in
   *) say "note: $BIN_DIR is not on your PATH — add it to use 'lemux' directly" ;;
 esac
 
-say "done. inside tmux, run:  lemux start [name]"
+say "done. run claude inside tmux (any way — plain, --continue, --resume) and branch away"
 say "keys: prefix+B branch · prefix+T tree · prefix+X delete"
