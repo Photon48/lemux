@@ -1,0 +1,3 @@
+# one-time asset-generation scripts stay local
+*.py
+__pycache__/
