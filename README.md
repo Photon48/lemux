@@ -3,8 +3,8 @@
 A tmux-native, node-based navigator for **branched Claude Code sessions**.
 
 <p align="center">
-  <img src="assets/side-quest-trip.svg" width="820"
-       alt="Highlight a sentence in a claude response, hit prefix+B, and it forks into a side-quest session that carries the full parent context and answers there, while the main conversation rolls on untouched.">
+  <img src="assets/flow-trip.svg" width="820"
+       alt="The whole loop in one take: an answer drops an aside, you highlight it, prefix+B branches it with your question, the side quest answers with the full parent context, prefix+T zooms you back out to the parent, and the main conversation never noticed.">
 </p>
 
 A single Claude Code conversation is linear. When you're learning or digging
@@ -129,6 +129,9 @@ branches. Navigating is about *this* conversation, not about managing sessions.
 ```
 
 `●` = window open, `○` = window closed (enter revives it via `--resume`).
+The preview pane tells each branch's story: the one-line briefs written when
+each ancestor diverged, then the exact highlight and question this one
+branched on.
 
 ## Notes
 
