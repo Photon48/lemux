@@ -3,8 +3,8 @@
 A tmux-native, node-based navigator for **branched Claude Code sessions**.
 
 <p align="center">
-  <img src="assets/side-quest.svg" width="820"
-       alt="Highlight a sentence in a claude response, hit prefix+B, and it forks into a side-quest session that carries the full parent context. No merge — the main quest never knew.">
+  <img src="assets/side-quest-trip.svg" width="820"
+       alt="Highlight a sentence in a claude response, hit prefix+B, and it forks into a side-quest session that carries the full parent context and answers there, while the main conversation rolls on untouched.">
 </p>
 
 A single Claude Code conversation is linear. When you're learning or digging

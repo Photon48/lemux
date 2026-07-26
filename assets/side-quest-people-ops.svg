@@ -1,0 +1,75 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 880 624" font-family="SFMono-Regular, Menlo, 'Cascadia Mono', Consolas, 'Liberation Mono', monospace" font-size="13">
+  <defs>
+    <marker id="arr" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+      <path d="M0,0 L10,5 L0,10 z" fill="#f5c24b"/>
+    </marker>
+    <filter id="shadow" x="-20%" y="-20%" width="140%" height="160%">
+      <feDropShadow dx="0" dy="6" stdDeviation="12" flood-color="#000" flood-opacity="0.35"/>
+    </filter>
+  </defs>
+
+  <!-- ══════════ the main conversation ══════════ -->
+  <g filter="url(#shadow)">
+    <rect x="36" y="28" width="560" height="252" rx="10" fill="#171922" stroke="#2d333e"/>
+  </g>
+  <circle cx="58" cy="50" r="5.5" fill="#ff5f56"/>
+  <circle cx="76" cy="50" r="5.5" fill="#ffbd2e"/>
+  <circle cx="94" cy="50" r="5.5" fill="#27c93f"/>
+  <text x="316" y="54" text-anchor="middle" font-size="11.5" fill="#8b949e">policy update — the main quest</text>
+  <line x1="36" y1="66" x2="596" y2="66" stroke="#262b33"/>
+
+  <text x="64" y="96" fill="#c9d1d9"><tspan fill="#7ee787">&gt;</tspan> draft our new parental leave policy</text>
+
+  <text x="64.0" y="126" fill="#c9d1d9" textLength="343.2">Here's a 16-week draft covering both parents</text>
+  <text x="64.0" y="148" fill="#c9d1d9" textLength="62.4">equally.</text>
+  <rect x="132.2" y="134" width="245.8" height="19" rx="3" fill="#f5c24b" opacity="0.16"/>
+  <text x="134.2" y="148" fill="#f5c24b" textLength="241.8">This overlaps your state's paid</text>
+  <rect x="62.0" y="156" width="97.6" height="19" rx="3" fill="#f5c24b" opacity="0.16"/>
+  <text x="64.0" y="170" fill="#f5c24b" textLength="93.6">family leave</text>
+  <text x="157.6" y="170" fill="#c9d1d9" textLength="249.6">, which pays out separately from</text>
+  <text x="64.0" y="192" fill="#c9d1d9" textLength="117.0">what you offer…</text>
+
+  <!-- the aside worth chasing -->
+  <g>
+    <text x="395" y="151" font-size="17" font-weight="bold" fill="#f5c24b" text-anchor="middle">!</text>
+    <animateTransform attributeName="transform" type="translate" values="0,0; 0,-5; 0,0" dur="1.4s" repeatCount="indefinite" calcMode="spline" keySplines=".4 0 .6 1; .4 0 .6 1"/>
+  </g>
+
+  <!-- …and the main thread carries on regardless -->
+  <text x="64" y="240" fill="#c9d1d9"><tspan fill="#7ee787">&gt;</tspan> thanks — now the manager FAQ</text>
+  <rect x="306" y="228" width="8" height="15" fill="#8b949e">
+    <animate attributeName="opacity" values="1;1;0;0" keyTimes="0;0.5;0.5;1" dur="1.1s" repeatCount="indefinite"/>
+  </rect>
+
+  <!-- ══════════ the branch ══════════ -->
+  <path d="M 111 186 C 111 290, 175 340, 382 368" fill="none" stroke="#f5c24b" stroke-width="2.2" stroke-dasharray="7 6" marker-end="url(#arr)">
+    <animate attributeName="stroke-dashoffset" from="26" to="0" dur="1s" repeatCount="indefinite"/>
+  </path>
+  <rect x="117" y="292" width="104" height="28" rx="6" fill="#1d212a" stroke="#f5c24b" stroke-opacity="0.55"/>
+  <text x="169" y="310" text-anchor="middle" fill="#f5c24b">branch it</text>
+
+  <!-- ══════════ the side quest ══════════ -->
+  <g filter="url(#shadow)">
+    <rect x="340" y="372" width="470" height="218" rx="10" fill="#171922" stroke="#2d333e"/>
+  </g>
+  <polygon points="373,362 397,362 397,384 373,384 384,373" fill="#c9a227"/>
+  <polygon points="727,362 703,362 703,384 727,384 716,373" fill="#c9a227"/>
+  <rect x="395" y="356" width="310" height="32" rx="5" fill="#f5c24b"/>
+  <text x="550" y="377" text-anchor="middle" font-weight="bold" font-size="13.5" letter-spacing="1" fill="#1c1710">◆ SIDE QUEST ACCEPTED ◆</text>
+
+  <text x="368" y="424" fill="#c9d1d9"><tspan fill="#7ee787">&gt;</tspan></text>
+  <text x="383.6" y="424" fill="#c9d1d9" textLength="15.6">Re</text>
+  <rect x="405.0" y="410" width="308.2" height="19" rx="3" fill="#f5c24b" opacity="0.16"/>
+  <text x="407.0" y="424" fill="#f5c24b" textLength="304.2">"This overlaps your state's paid family</text>
+  <rect x="381.6" y="432" width="50.8" height="19" rx="3" fill="#f5c24b" opacity="0.16"/>
+  <text x="383.6" y="446" fill="#f5c24b" textLength="46.8">leave"</text>
+  <text x="430.4" y="446" fill="#c9d1d9" textLength="226.2">: how do the two stack for an</text>
+  <text x="383.6" y="468" fill="#c9d1d9" textLength="70.2">employee?</text>
+
+  <text x="368.0" y="512" fill="#8b949e" textLength="319.8">In most states the scheme pays a share of</text>
+  <text x="368.0" y="534" fill="#8b949e" textLength="319.8">wages and the employer tops it up to full</text>
+  <text x="368.0" y="556" fill="#8b949e" textLength="241.8">salary rather than paying twice</text>
+  <rect x="616" y="544" width="8" height="15" fill="#8b949e">
+    <animate attributeName="opacity" values="1;1;0;0" keyTimes="0;0.5;0.5;1" dur="1.1s" repeatCount="indefinite"/>
+  </rect>
+</svg>
