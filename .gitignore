@@ -1,3 +1,6 @@
 # one-time asset-generation scripts stay local
 *.py
 __pycache__/
+
+# local demo recordings
+*.mp4
