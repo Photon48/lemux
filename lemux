@@ -410,9 +410,12 @@ cmd_ask() { # <pane_id> — popup: confirm the copied excerpt, type a question, 
   fi
   hdr+="type a question · enter: branch (empty: type in the branch) · esc: cancel"
   # fzf as the line editor: real editing keys, and esc/ctrl-c cancel cleanly
-  # (bash 3.2's read -e can do neither).
+  # (bash 3.2's read -e can do neither). The query line can't wrap, so a
+  # preview pane mirrors it wrapped — the full question stays visible.
   question=$(: | fzf --print-query --prompt '> ' --layout=reverse --no-info \
-    --header "$hdr") || rc=$?
+    --header "$hdr" \
+    --preview 'printf %s {q}' \
+    --preview-window 'down:60%:wrap:follow:border-top') || rc=$?
   ((rc == 130)) && return 0
   cmd_branch "$pane" --text "$excerpt" --ask "$question"
 }
