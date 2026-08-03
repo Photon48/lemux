@@ -397,7 +397,7 @@ cmd_ask() { # <pane_id> — popup: confirm the copied excerpt, type a question, 
   [[ -f "$(session_file "$parent" "$dir")" ]] || popup_die "nothing to branch yet — send at least one message first"
 
   excerpt=$(get_clip | collapse_ws)
-  local hdr from
+  local hdr rc=0 from
   from=$(node_field "$parent" name)
   [[ -n "$from" ]] || from=$(basename "$dir")
   hdr="branch a side quest  (from $from)"$'\n'
@@ -409,21 +409,14 @@ cmd_ask() { # <pane_id> — popup: confirm the copied excerpt, type a question, 
     hdr+="nothing copied — the branch will start from your question alone"$'\n'
   fi
   hdr+="type a question · enter: branch (empty: type in the branch) · esc: cancel"
-  # zsh's line editor: long questions wrap in place across lines (fzf's
-  # query line can't wrap, bash 3.2's read -e can't cancel on esc/ctrl-c).
-  # zsh ships with macOS, so this adds no dependency. Enter prints the
-  # buffer behind a "+" sentinel; esc (send-break) and ctrl-c abort the
-  # script before that print, so an empty capture means cancelled.
-  question=$(zsh -f -c '
-    print -r -- "$1" >/dev/tty
-    q=""
-    bindkey -e
-    bindkey "\e" send-break
-    vared -p "> " q 2>/dev/tty
-    print -rn -- "+$q"
-  ' -- "$hdr") || return 0
-  [[ -n "$question" ]] || return 0
-  question=${question#+}
+  # fzf as the line editor: real editing keys, and esc/ctrl-c cancel cleanly
+  # (bash 3.2's read -e can do neither). The query line can't wrap, so a
+  # preview pane mirrors it wrapped — the full question stays visible.
+  question=$(: | fzf --print-query --prompt '> ' --layout=reverse --no-info \
+    --header "$hdr" \
+    --preview 'printf %s {q}' \
+    --preview-window 'down:60%:wrap:follow:border-top') || rc=$?
+  ((rc == 130)) && return 0
   cmd_branch "$pane" --text "$excerpt" --ask "$question"
 }
 
