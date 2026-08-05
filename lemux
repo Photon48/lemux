@@ -41,13 +41,13 @@ root_of() {
   printf '%s' "$id"
 }
 
-# Enforce the path discipline: in the topic containing ctx, close every
-# window that isn't on the chain root → anchor, and clear the pruned nodes'
-# window records. skip's window is left for tmux to close naturally (it's
-# the caller's own). An empty anchor prunes the whole topic.
+# Enforce the one-window discipline: in the topic containing ctx, close every
+# window except the anchor's — ancestors and siblings alike — and clear the
+# pruned nodes' window records. Sessions that are busy or waiting on you are
+# spared. skip's window is left for tmux to close naturally (it's the
+# caller's own). An empty anchor prunes the whole topic.
 prune_path() { # ctx anchor [skip]
-  local ctx="$1" anchor="$2" skip="${3:-}" keep=" " n win pruned=""
-  n="$anchor"; while [[ -n "$n" ]]; do keep+="$n "; n=$(node_field "$n" parent); done
+  local ctx="$1" anchor="$2" skip="${3:-}" keep=" $2 " n win pruned=""
   for n in $(descendants "$(root_of "$ctx")"); do
     [[ "$keep" == *" $n "* ]] && continue
     win=$(node_field "$n" window)
@@ -419,6 +419,10 @@ cmd_branch() { # <pane_id> [--text <excerpt>] [--ask <question>] — fork the pa
     [[ -z "$chain" ]] || printf 'Earlier steps of this exploration, oldest first:\n%s' "$chain"
   } >"$f"
   tmux run-shell -b "$(printf '%q' "$SELF") _name $(printf '%q' "$id") $(printf '%q' "$f")"
+
+  # One window per topic: landing in the branch closes the parent chain
+  # behind you (busy or waiting sessions are spared, as everywhere).
+  prune_path "$id" "$id"
 }
 
 cmd_ask() { # <pane_id> — popup: confirm the copied excerpt, type a question, branch
@@ -479,16 +483,23 @@ cmd__run() { # id dir mode [parent] — wrapper that tags the pane and execs cla
   # (remain-on-exit) so the error stays readable.
   ((rc)) && ((rc != 130)) && exit "$rc"
 
-  # Exiting walks you back up the path: land on the parent, close every
-  # window in the topic below it. State and transcripts survive — the
-  # tree revives any of it.
-  local p win
+  # Exiting walks you back up the path: land on the parent — reviving its
+  # window, closed since we branched off it — and close everything else in
+  # the topic. State and transcripts survive — the tree revives any of it.
+  local p win pdir pname
   p=$(node_field "$id" parent)
   prune_path "$id" "$p" "$id"
   tmux set-option -p -u @lemux_session 2>/dev/null || true
   if [[ -n "$p" ]]; then
     win=$(node_field "$p" window)
-    window_alive "$win" && focus_window "$win" || true
+    if window_alive "$win"; then
+      focus_window "$win"
+    else
+      pdir=$(node_field "$p" dir)
+      pname=$(node_field "$p" name)
+      tmux new-window -c "$pdir" -n "$pname" \
+        "exec $(printf '%q' "$SELF") _run $(printf '%q' "$p") $(printf '%q' "$pdir") revive"
+    fi
   fi
 }
 

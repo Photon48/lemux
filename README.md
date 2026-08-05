@@ -71,14 +71,15 @@ side-quest transcripts are deleted, and the root conversation is kept on disk
 `lemux rm` on a branch id (or `prefix + X` inside one) deletes that side
 quest and its subtree, transcripts included.
 
-Open windows follow a path discipline: they are only ever the chain you're
-inside (root → side quest → deeper side quest). Wherever you land through
-lemux — exiting a session's claude walks you up to its parent, jumping in
-the tree drops you anywhere — every window in the topic outside the new
-path closes, sibling side quests included. The tree and every transcript
-survive pruning, so anything closed is one `prefix + T`, enter away;
-exiting the root closes the whole topic. (Switching windows with tmux's own
-keys is tmux's business — lemux prunes only when it moves you.)
+Open windows follow a one-window discipline: a topic only ever has the
+session you're inside open. Branching closes the parent behind you, and
+wherever you land through lemux — exiting a session's claude walks you up
+to its parent and reopens it, jumping in the tree drops you anywhere —
+every other window in the topic closes, ancestors and sibling side quests
+alike. The tree and every transcript survive pruning, so anything closed
+is one `prefix + T`, enter away; exiting the root closes the whole topic.
+(Switching windows with tmux's own keys is tmux's business — lemux prunes
+only when it moves you.)
 
 Pruning never kills a session that's working or waiting on you. Every claude
 session carries lemux's hooks (merged into `~/.claude/settings.json` by
