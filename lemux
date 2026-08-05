@@ -216,8 +216,10 @@ cmd__type() { # pane seedfile submit — wait for claude's input box, then type
   [[ -n "$text" ]] || return 0
   for i in $(seq 1 120); do
     sleep 0.25
-    out=$(tmux capture-pane -p -t "$pane" 2>/dev/null || true)
-    case "$out" in *"for shortcuts"*) break ;; esac
+    # ready when the input prompt reaches the bottom of the pane — the old
+    # "? for shortcuts" hint is gone in claude >= 2.1, its tips rotate now
+    out=$(tmux capture-pane -p -t "$pane" 2>/dev/null | grep -v '^[[:space:]]*$' | tail -4 || true)
+    case "$out" in *"❯"*|*"for shortcuts"*) break ;; esac
   done
   sleep 0.8
   tmux send-keys -t "$pane" -l -- "$text" 2>/dev/null || true
