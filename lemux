@@ -459,8 +459,9 @@ cmd__run() { # id dir mode [parent] — wrapper that tags the pane and execs cla
   fi
 }
 
-cmd__list() { # <root_id> — tab-separated: id <TAB> rendered tree line
+cmd__list() { # <root_id> [current_id] — tab-separated: id <TAB> rendered tree line
   init_state
+  CUR="${2:-}"
   _walk "${1:?}" "" root
 }
 
@@ -473,7 +474,11 @@ _walk() { # id prefix position(root|mid|last)
   esac
   local status="○"
   window_alive "$(node_field "$id" window)" && status="●"
-  printf '%s\t%s%s%s %s\n' "$id" "$prefix" "$glyph" "$status" "$(node_field "$id" name)"
+  local line
+  line=$(printf '%s%s%s %s' "$prefix" "$glyph" "$status" "$(node_field "$id" name)")
+  # the session the navigator was opened from wears its whole line highlighted
+  [[ "$id" == "${CUR:-}" ]] && line=$'\033[1;30;43m '"$line"$' \033[0m'
+  printf '%s\t%s\n' "$id" "$line"
   local kids i n
   kids=($(jq -r --arg id "$id" '[.[] | select(.parent==$id)] | sort_by(.created) | .[].id' "$TREE"))
   n=${#kids[@]}
@@ -491,12 +496,12 @@ cmd_tree() { # <pane_id> — fzf navigator over this session's own side quests
   root=$(root_of "$cur")
   [[ -n "$(node_field "$root" name)" ]] || popup_die "no side quests yet — copy some text and branch with prefix+B first"
   self=$(printf '%q' "$SELF")
-  out=$(cmd__list "$root" | fzf --delimiter='\t' --with-nth=2 --no-sort --layout=reverse \
+  out=$(cmd__list "$root" "$cur" | fzf --ansi --delimiter='\t' --with-nth=2 --no-sort --layout=reverse \
     --prompt='lemux> ' \
     --header='enter: jump · ctrl-x: delete branch · esc: close' \
     --preview="$self _preview {1}" --wrap-sign='  ' \
     --preview-window=right,55%,wrap,border-left \
-    --bind="ctrl-x:execute-silent($self rm {1})+reload($self _list $root)") || return 0
+    --bind="ctrl-x:execute-silent($self rm {1})+reload($self _list $root $cur)") || return 0
   cmd_jump "${out%%$'\t'*}"
 }
 
