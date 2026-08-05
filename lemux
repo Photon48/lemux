@@ -109,7 +109,7 @@ ago() { # epoch → "5m ago"
   else echo "$((d / 86400))d ago"; fi
 }
 
-hook_block() { # the lifecycle hooks JSON — shared by hooks.json and `lemux enable`
+hook_block() { # the lifecycle hooks JSON — shared by hooks.json and `lemux setup`
   jq -n --arg s "$(printf '%q' "$SELF")" '{
     SessionStart:      [{hooks: [{type: "command", command: ($s + " _hello")}]}],
     UserPromptSubmit:  [{hooks: [{type: "command", command: ($s + " _state busy")}]}],
@@ -139,6 +139,39 @@ cmd_enable() { # merge the hooks into ~/.claude/settings.json so ANY claude sess
       | $h + ($ours | with_entries(.value = ((($h[.key] // []) | scrubbed) + .value))))
   ' "$settings" >"$tmp" && mv "$tmp" "$settings"
   echo "lemux: hooks merged into $settings — claude sessions in tmux are now branchable (restart any already running)"
+}
+
+cmd_setup() { # the whole install, self-contained: bin copy, tmux keys, hooks.
+  # Idempotent — after a git pull, ./lemux setup from the checkout is the update.
+  local bin_dir="${LEMUX_BIN_DIR:-$HOME/.local/bin}" conf="${LEMUX_TMUX_CONF:-$HOME/.tmux.conf}" bin c
+  bin="$bin_dir/lemux"
+  for c in tmux fzf jq; do
+    command -v "$c" >/dev/null 2>&1 || die "missing dependency: $c — try: brew install $c"
+  done
+  command -v claude >/dev/null 2>&1 || [[ -x "$CLAUDE_BIN" ]] ||
+    die "claude not found — install Claude Code first: https://claude.com/claude-code"
+  mkdir -p "$bin_dir"
+  if [[ ! "$SELF" -ef "$bin" ]]; then
+    rm -f "$bin"
+    cp "$SELF" "$bin" && chmod +x "$bin"
+    echo "lemux: installed → $bin"
+  fi
+  SELF="$bin"   # keybindings and hooks name the installed copy, not this file
+  touch "$conf"
+  sed -i.lemux-bak '/^# >>> lemux >>>/,/^# <<< lemux <<</d' "$conf"
+  rm -f "$conf.lemux-bak"
+  cmd_init >>"$conf"
+  echo "lemux: keybindings written to $conf"
+  cmd_enable
+  if tmux list-sessions >/dev/null 2>&1; then
+    tmux source-file "$conf" && echo "lemux: tmux config reloaded"
+  fi
+  case ":$PATH:" in
+    *":$bin_dir:"*) ;;
+    *) echo "lemux: note: $bin_dir is not on your PATH — add it to use 'lemux' directly" ;;
+  esac
+  echo "lemux: done — run claude inside tmux (any way) and branch away"
+  echo "lemux: keys: prefix+B branch · prefix+T tree · prefix+X delete"
 }
 
 cmd__state() { # <state> — hook callback; session_id arrives on stdin as JSON
@@ -319,7 +352,7 @@ cmd_branch() { # <pane_id> [--text <excerpt>] [--ask <question>] — fork the pa
 
   local parent dir id name
   parent=$(pane_session "$pane")
-  [[ -n "$parent" ]] || die "no claude session in this pane — is one running? (new setup: lemux enable, then restart claude)"
+  [[ -n "$parent" ]] || die "no claude session in this pane — is one running? (new setup: lemux setup, then restart claude)"
   dir=$(node_field "$parent" dir)
   if [[ -z "$dir" ]]; then
     # plain claude session (started without lemux) — its first branch enrols it
@@ -392,7 +425,7 @@ cmd_ask() { # <pane_id> — popup: confirm the copied excerpt, type a question, 
   init_state
   local pane="${1:?usage: lemux ask <pane_id>}" parent dir excerpt question shown
   parent=$(pane_session "$pane")
-  [[ -n "$parent" ]] || popup_die "no claude session in this pane — new setup? run: lemux enable, then restart claude"
+  [[ -n "$parent" ]] || popup_die "no claude session in this pane — new setup? run: lemux setup, then restart claude"
   dir=$(node_field "$parent" dir)
   [[ -n "$dir" ]] || dir=$(pane_dir "$pane")
   [[ -n "$dir" ]] || popup_die "cannot tell where this session lives — restart claude and retry"
@@ -492,7 +525,7 @@ cmd_tree() { # <pane_id> — fzf navigator over this session's own side quests
   init_state
   local pane="${1:?usage: lemux tree <pane_id>}" cur root self out
   cur=$(pane_session "$pane")
-  [[ -n "$cur" ]] || popup_die "no claude session in this pane — new setup? run: lemux enable, then restart claude"
+  [[ -n "$cur" ]] || popup_die "no claude session in this pane — new setup? run: lemux setup, then restart claude"
   root=$(root_of "$cur")
   [[ -n "$(node_field "$root" name)" ]] || popup_die "no side quests yet — copy some text and branch with prefix+B first"
   self=$(printf '%q' "$SELF")
@@ -667,7 +700,9 @@ lemux — tmux-native navigator for branched Claude Code sessions
 Any claude session inside tmux is branchable — plain claude, --continue,
 --resume, whatever. Its first branch (prefix+B) enrols it as a topic.
 
-  lemux enable           install the claude hooks (once — install.sh does this)
+  lemux setup            install or update everything: ~/.local/bin copy,
+                         tmux keybindings, claude hooks (idempotent — run it
+                         from a checkout after every git pull)
   lemux tree <pane>      fzf navigator over that session's own side quests
   lemux ask <pane>       branch popup: copied text + a question
   lemux branch <pane>    fork the pane's session (--text <excerpt> --ask <q>)
@@ -686,7 +721,8 @@ EOF
 # ---------- dispatch ----------
 
 case "${1:-help}" in
-  enable)   shift; cmd_enable "$@" ;;
+  setup)    shift; cmd_setup "$@" ;;
+  enable)   shift; cmd_setup "$@" ;;   # deprecated alias — setup supersedes it
   branch)   shift; cmd_branch "$@" ;;
   ask)      shift; cmd_ask "$@" ;;
   tree)     shift; cmd_tree "$@" ;;

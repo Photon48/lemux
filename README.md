@@ -31,7 +31,7 @@ lemux is ~300 lines of bash on top of things that already exist:
 
 The only state lemux keeps is `~/.lemux/tree.json`: one entry per session with
 its parent, the excerpt it branched on, and which tmux window it lives in.
-A `SessionStart` hook (installed once by `lemux enable`) makes every claude
+A `SessionStart` hook (installed once by `lemux setup`) makes every claude
 session tag its tmux pane with its session ID as it starts — that is how any
 session, however launched, is branchable with zero ceremony.
 
@@ -43,11 +43,15 @@ Requires: `tmux` ≥ 3.2, `fzf`, `jq`, `claude`.
 curl -fsSL https://raw.githubusercontent.com/Photon48/lemux/main/install.sh | bash
 ```
 
-Or from a checkout: `./install.sh`. Either way it copies `lemux` to
+Or from a checkout: `./install.sh`. Either way it fetches the script and hands
+off to `lemux setup`, which does the whole job: copies `lemux` to
 `~/.local/bin`, writes the keybindings into `~/.tmux.conf`, merges lemux's
-lifecycle hooks into `~/.claude/settings.json` (`lemux enable` — your own
-hooks and settings are untouched), and reloads tmux. Everything is idempotent —
-re-running replaces lemux's own entries and nothing else. Uninstall by deleting
+lifecycle hooks into `~/.claude/settings.json` (your own hooks and settings
+are untouched), and reloads tmux. Everything is idempotent — re-running
+replaces lemux's own entries and nothing else.
+
+To update from a checkout: `git pull`, then `./lemux setup`. (Curl users
+re-run the one-liner.) Uninstall by deleting
 `~/.local/bin/lemux`, the `>>> lemux >>>` block in `~/.tmux.conf`, the hook
 entries mentioning `lemux` in `~/.claude/settings.json`, and `~/.lemux`.
 
@@ -78,7 +82,7 @@ keys is tmux's business — lemux prunes only when it moves you.)
 
 Pruning never kills a session that's working or waiting on you. Every claude
 session carries lemux's hooks (merged into `~/.claude/settings.json` by
-`lemux enable`; lemux-launched sessions also get them injected via
+`lemux setup`; lemux-launched sessions also get them injected via
 `--settings`) that report its lifecycle: busy during a turn, waiting at a
 permission or input dialog, idle between turns. Only idle windows are pruned.
 One known gap: Esc-cancelling a permission dialog emits no event, so that
