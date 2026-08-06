@@ -76,12 +76,12 @@ descendants() { # id — print the id and every descendant id, one per line (BFS
   done
 }
 
-add_node() { # id parent name excerpt dir [question]
+add_node() { # id parent name excerpt dir [question] [lines]
   jq_update --arg id "$1" --arg parent "$2" --arg name "$3" \
     --arg excerpt "$4" --arg dir "$5" --arg question "${6:-}" \
-    --argjson created "$(date +%s)" \
+    --argjson created "$(date +%s)" --argjson lines "${7:-1}" \
     '. + [{id:$id, parent:$parent, name:$name, excerpt:$excerpt, question:$question,
-           dir:$dir, created:$created, window:"", pane:""}]'
+           lines:$lines, dir:$dir, created:$created, window:"", pane:""}]'
 }
 
 window_alive() {
@@ -226,6 +226,10 @@ get_clip() {
   printf '%s' "$t"
 }
 
+first_words() { # n — the first n words of stdin, one line
+  awk -v n="$1" '{for(i=1;i<=NF&&i<=n;i++)printf "%s%s",(i>1?" ":""),$i;exit}'
+}
+
 # die, but visibly — inside a popup, stderr vanishes the instant we exit.
 popup_die() {
   printf '\n  \033[1mlemux:\033[0m %s\n\n  press any key…' "$*"
@@ -337,19 +341,23 @@ adopt_root() { # id pane — a session's first branch declares it a topic root i
     'map(if .id==$id then .window=$win | .pane=$pane else . end)'
 }
 
-cmd_branch() { # <pane_id> [--text <excerpt>] [--ask <question>] — fork the pane's session
+cmd_branch() { # <pane_id> [--text <excerpt>] [--ask <question>] [--lines <n>]
   init_state
-  local pane excerpt="" question=""
+  local pane excerpt="" question="" lines=1
   pane="${1:?usage: lemux branch <pane_id> [--text <excerpt>] [--ask <question>]}"
   shift
   while (($#)); do
     case "$1" in
-      --text) shift; excerpt=$(printf '%s' "${1:-}" | collapse_ws) ;;
-      --ask)  shift; question=$(printf '%s' "${1:-}" | collapse_ws) ;;
-      *)      die "branch: unexpected argument: $1" ;;
+      # the stored excerpt is capped at what the seed uses; the node also
+      # remembers how many lines the original copy had, for the previews
+      --text)  shift; excerpt=$(printf '%s' "${1:-}" | collapse_ws | cut -c1-600) ;;
+      --ask)   shift; question=$(printf '%s' "${1:-}" | collapse_ws) ;;
+      --lines) shift; lines="${1:-1}" ;;
+      *)       die "branch: unexpected argument: $1" ;;
     esac
     shift
   done
+  [[ "$lines" =~ ^[0-9]+$ ]] || lines=1
   [[ -n "$excerpt$question" ]] || die "nothing to branch on — select some text and copy it first"
 
   local parent dir id name
@@ -366,7 +374,7 @@ cmd_branch() { # <pane_id> [--text <excerpt>] [--ask <question>] — fork the pa
   id=$(new_uuid)
   name=$(printf '%s' "${question:-$excerpt}" | cut -c1-28 | tr -cd '[:print:]' | sed -E 's/^ +| +$//g')
   [[ -n "$name" ]] || name="branch"
-  add_node "$id" "$parent" "$name" "$excerpt" "$dir" "$question"
+  add_node "$id" "$parent" "$name" "$excerpt" "$dir" "$question" "$lines"
 
   local newpane
   newpane=$(tmux new-window -c "$dir" -n "$name" -P -F '#{pane_id}' \
@@ -437,17 +445,24 @@ cmd_ask() { # <pane_id> — popup: confirm the copied excerpt, type a question, 
   [[ -n "$dir" ]] || popup_die "cannot tell where this session lives — restart claude and retry"
   [[ -f "$(session_file "$parent" "$dir")" ]] || popup_die "nothing to branch yet — send at least one message first"
 
-  excerpt=$(get_clip | collapse_ws)
+  local raw nlines
+  raw=$(get_clip)
+  nlines=$(printf '%s' "$raw" | awk 'END{print NR}')
+  excerpt=$(printf '%s' "$raw" | collapse_ws | cut -c1-600)
   local hdr rc=0 from
   from=$(node_field "$parent" name)
   [[ -n "$from" ]] || from=$(basename "$dir")
   hdr="branch a side quest  (from $from)"$'\n'
-  if [[ -n "$excerpt" ]]; then
+  if [[ -z "$excerpt" ]]; then
+    hdr+="nothing copied — the branch will start from your question alone"$'\n'
+  elif ((nlines > 1)); then
+    # a big multi-line copy: first words + a size badge, never the wall of text
+    shown=$(printf '%s' "$excerpt" | first_words 12)
+    hdr+="on \"$shown…\"  ⟨$nlines lines copied⟩"$'\n'
+  else
     shown=$(printf '%s' "$excerpt" | cut -c1-240)
     [[ "${#excerpt}" -gt 240 ]] && shown="$shown…"
     hdr+="on \"$shown\""$'\n'
-  else
-    hdr+="nothing copied — the branch will start from your question alone"$'\n'
   fi
   hdr+="type a question · enter: branch (empty: type in the branch) · esc: cancel"
   # fzf as the line editor: real editing keys, and esc/ctrl-c cancel cleanly
@@ -455,7 +470,7 @@ cmd_ask() { # <pane_id> — popup: confirm the copied excerpt, type a question, 
   question=$(: | fzf --print-query --prompt '> ' --layout=reverse --no-info \
     --header "$hdr") || rc=$?
   ((rc == 130)) && return 0
-  cmd_branch "$pane" --text "$excerpt" --ask "$question"
+  cmd_branch "$pane" --text "$excerpt" --ask "$question" --lines "$nlines"
 }
 
 cmd__popup() { # <width> <height> <subcommand> <pane_id> — called from the tmux bindings
@@ -678,13 +693,22 @@ cmd__preview() { # id — the branch's diverge story + its steering inputs, for 
     indent+=" "
   done
   # the steering inputs: the highlight shown in place, the question verbatim
-  local excerpt question
+  local excerpt question lines
   excerpt=$(node_field "$id" excerpt)
   question=$(node_field "$id" question)
+  lines=$(node_field "$id" lines)
+  [[ "$lines" =~ ^[0-9]+$ ]] || lines=1
   [[ ${#excerpt} -gt 300 ]] && excerpt="${excerpt:0:300}…"
   if [[ -n "$excerpt$question" ]]; then
     printf '\033[2m┄┄ branched on ┄┄┄┄┄┄┄┄┄┄\033[0m\n'
-    [[ -z "$excerpt" ]] || psnippet "$(node_field "$id" ctx_pre)" "$excerpt" "$(node_field "$id" ctx_post)"
+    if [[ -z "$excerpt" ]]; then :
+    elif ((lines > 1)); then
+      # a big multi-line copy: first words + a size badge, not the wall of text
+      pwrap $'\033[33m❝\033[0m \033[2m' $'  \033[2m' 2 \
+        "$(printf '%s' "$excerpt" | first_words 12)… ⟨$lines lines copied⟩"
+    else
+      psnippet "$(node_field "$id" ctx_pre)" "$excerpt" "$(node_field "$id" ctx_post)"
+    fi
     [[ -z "$question" ]] || pwrap $'\033[1;36m❯\033[0m \033[2masked\033[0m  ' '         ' 9 "$question"
   fi
   return 0

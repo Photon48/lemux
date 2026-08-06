@@ -149,6 +149,9 @@ branched on.
   back to tmux's paste buffer. Because lemux puts each branch in its own
   full-width *window* — never a split — native mouse selection can't pick up
   a neighbouring pane's text.
+- **Big copies don't flood the UI**: a large multi-line copy shows as its
+  first words plus a `⟨N lines copied⟩` badge, in both the branch popup and
+  the tree preview; the branch seed keeps the first 600 characters.
 - Sessions already running when you install (or update) lemux haven't
   announced themselves yet — the SessionStart hook only fires on launch, so
   restart claude in that pane (`claude --continue` picks up right where you
