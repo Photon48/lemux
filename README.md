@@ -37,7 +37,7 @@ session, however launched, is branchable with zero ceremony.
 
 ## Install
 
-Requires: `tmux` ≥ 3.2, `fzf`, `jq`, `claude`.
+Requires: `tmux` ≥ 3.2, `fzf` ≥ 0.48, `jq`, `claude`.
 
 ```sh
 curl -fsSL https://raw.githubusercontent.com/Photon48/lemux/main/install.sh | bash

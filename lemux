@@ -551,13 +551,17 @@ _walk() { # id prefix position(root|mid|last)
 
 cmd_tree() { # <pane_id> — fzf navigator over this session's own side quests
   init_state
-  local pane="${1:?usage: lemux tree <pane_id>}" cur root self out
+  local pane="${1:?usage: lemux tree <pane_id>}" cur root self out list pos
   cur=$(pane_session "$pane")
   [[ -n "$cur" ]] || popup_die "no claude session in this pane — new setup? run: lemux setup, then restart claude"
   root=$(root_of "$cur")
   [[ -n "$(node_field "$root" name)" ]] || popup_die "no side quests yet — copy some text and branch with prefix+B first"
   self=$(printf '%q' "$SELF")
-  out=$(cmd__list "$root" "$cur" | fzf --ansi --delimiter='\t' --with-nth=2 --no-sort --layout=reverse \
+  # open with the cursor on the session you came from, not the root
+  list=$(cmd__list "$root" "$cur")
+  pos=$(printf '%s\n' "$list" | awk -F'\t' -v id="$cur" '$1==id{print NR; exit}')
+  out=$(printf '%s\n' "$list" | fzf --ansi --delimiter='\t' --with-nth=2 --no-sort --layout=reverse \
+    --bind="start:pos(${pos:-1})" \
     --prompt='lemux> ' \
     --header='enter: jump · ctrl-x: delete branch · esc: close' \
     --preview="$self _preview {1}" --wrap-sign='  ' \
