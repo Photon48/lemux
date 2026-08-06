@@ -220,7 +220,9 @@ collapse_ws() { tr '\n\t\r' '   ' | sed -E 's/ +/ /g; s/^ //; s/ $//'; }
 get_clip() {
   local t=""
   if command -v pbpaste >/dev/null 2>&1; then t=$(pbpaste 2>/dev/null || true); fi
-  if [[ -z "${t//[[:space:]]/}" ]]; then t=$(tmux show-buffer 2>/dev/null || true); fi
+  # blank test via grep — bash 3.2's ${t//[[:space:]]/} is quadratic and
+  # hangs the popup for minutes on a large multi-line copy
+  if ! printf '%s' "$t" | grep -q '[^[:space:]]'; then t=$(tmux show-buffer 2>/dev/null || true); fi
   printf '%s' "$t"
 }
 
