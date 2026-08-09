@@ -73,11 +73,11 @@ quest and its subtree, transcripts included.
 
 Open windows follow a one-window discipline: a topic only ever has the
 session you're inside open. Branching closes the parent behind you, and
-wherever you land through lemux — exiting a session's claude walks you up
-to its parent and reopens it, jumping in the tree drops you anywhere —
-every other window in the topic closes, ancestors and sibling side quests
-alike. The tree and every transcript survive pruning, so anything closed
-is one `prefix + T`, enter away; exiting the root closes the whole topic.
+jumping in the tree drops you anywhere — every other window in the topic
+closes, ancestors and sibling side quests alike. The tree and every
+transcript survive pruning, so anything closed is one `prefix + T`, enter
+away. Exiting a session's claude (ctrl-c) simply leaves you at a shell
+prompt in that window, in the branch's directory — nothing else closes.
 (Switching windows with tmux's own keys is tmux's business — lemux prunes
 only when it moves you.)
 

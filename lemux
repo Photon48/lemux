@@ -500,24 +500,13 @@ cmd__run() { # id dir mode [parent] — wrapper that tags the pane and execs cla
   # (remain-on-exit) so the error stays readable.
   ((rc)) && ((rc != 130)) && exit "$rc"
 
-  # Exiting walks you back up the path: land on the parent — reviving its
-  # window, closed since we branched off it — and close everything else in
-  # the topic. State and transcripts survive — the tree revives any of it.
-  local p win pdir pname
-  p=$(node_field "$id" parent)
-  prune_path "$id" "$p" "$id"
+  # Exiting claude hands this window over to a plain shell in the branch's
+  # directory — the same "back at the prompt" a hand-started claude gives.
+  # No walking up, no window cascade, and the tab never closes out from
+  # under you. The transcript survives — the tree revives it any time.
   tmux set-option -p -u @lemux_session 2>/dev/null || true
-  if [[ -n "$p" ]]; then
-    win=$(node_field "$p" window)
-    if window_alive "$win"; then
-      focus_window "$win"
-    else
-      pdir=$(node_field "$p" dir)
-      pname=$(node_field "$p" name)
-      tmux new-window -c "$pdir" -n "$pname" \
-        "exec $(printf '%q' "$SELF") _run $(printf '%q' "$p") $(printf '%q' "$pdir") revive"
-    fi
-  fi
+  jq_update --arg id "$id" 'map(if .id==$id then .window="" | .pane="" else . end)'
+  exec "${SHELL:-/bin/zsh}" -l
 }
 
 cmd__list() { # <root_id> [current_id] — tab-separated: id <TAB> rendered tree line
