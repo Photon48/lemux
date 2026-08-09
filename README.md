@@ -101,6 +101,15 @@ session stays "waiting" — spared — until you next interact with it.
 | select text, copy it, `prefix + B` | **Branch**: fork this session into a new window, seeded with what you copied |
 | `prefix + T` | **Tree**: this session's side quests — type to filter, enter to jump, `ctrl-r` to rename, `ctrl-x` to delete |
 | `prefix + X` | **Delete** the current pane's branch and its whole subtree |
+| `prefix + D` | **Digest**: clone the whole topic into compact copies — prompts and replies only |
+
+Digest is the answer to a context window that filled up with tool calls. It
+walks the topic — the root and every branch under it — and writes a parallel
+tree of new sessions holding only your prompts and Claude's prose; tool calls,
+their results, and the file snapshots that ride along are dropped. On a real
+7.9 MB transcript that came out at 52 KB. The originals are untouched, and the
+digested tree lands in the navigator as `<topic> ⌁`, ready to resume from
+`prefix + T` with the conversation intact and the machinery gone.
 
 The flow: while reading an assistant response, select the sentence you want to
 dig into with the mouse and copy it (`cmd-C` on macOS), then hit `prefix + B`.

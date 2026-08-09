@@ -184,7 +184,7 @@ cmd_setup() { # the whole install, self-contained: bin copy, tmux keys, hooks.
     *) echo "lemux: note: $bin_dir is not on your PATH — add it to use 'lemux' directly" ;;
   esac
   echo "lemux: done — run claude inside tmux (any way) and branch away"
-  echo "lemux: keys: prefix+B branch · prefix+T tree · prefix+X delete"
+  echo "lemux: keys: prefix+B branch · prefix+T tree · prefix+X delete · prefix+D digest"
 }
 
 cmd__state() { # <state> — hook callback; session_id arrives on stdin as JSON
@@ -685,6 +685,80 @@ cmd_rm() { # <topic-name | id> | --pane <pane_id> — delete a branch or untrack
   jq_update --argjson dead "$json_ids" 'map(select(.id as $i | $dead | index($i) | not))'
 }
 
+hsize() {
+  awk -v b="${1:-0}" 'BEGIN{
+    if (b >= 1048576) printf "%.1fMB", b/1048576
+    else if (b >= 1024) printf "%dKB", b/1024
+    else printf "%dB", b}'
+}
+
+_mapped() { # key k1 v1 k2 v2 … — the value paired with key, if any
+  local k="$1"; shift
+  while (($#)); do [[ "$1" == "$k" ]] && { printf '%s' "$2"; return; }; shift 2; done
+}
+
+digest_file() { # src dst new_sid — strip a transcript to the conversation itself:
+  # user prompts and assistant prose survive; tool calls, tool results and meta
+  # records (attachments, snapshots, …) go. parentUuid is re-chained across the
+  # survivors so --resume still walks one unbroken thread. fromjson? shrugs off
+  # a half-written last line if the session is mid-turn.
+  jq -cR 'fromjson? // empty' "$1" | jq -cs --arg sid "$3" '
+    [ .[]
+      | select(.type=="user" or .type=="assistant")
+      | if .type=="user" and (.message.content|type)=="array"
+          then (.message.content |= map(select(.type? != "tool_result"))) | del(.toolUseResult)
+        elif .type=="assistant" and (.message.content|type)=="array"
+          then .message.content |= map(select(.type? == "text"))
+        else . end
+      | select((.message.content|type) != "array" or (.message.content|length) > 0)
+      | .sessionId = $sid ]
+    | . as $a
+    | range(0; length) as $i
+    | $a[$i] | .parentUuid = (if $i==0 then null else $a[$i-1].uuid end)
+  ' >"$2"
+}
+
+cmd_digest() { # <pane_id> — clone this pane's whole topic as a compact copy:
+  # same tree shape, new session ids, transcripts digested down to prompts and
+  # replies. Originals untouched; the copy hangs off the root as "<name> ⌁".
+  init_state
+  local pane="${1:?usage: lemux digest <pane_id>}" cur root o np new dir src dst
+  local pairs="" n=0 was=0 now=0
+  cur=$(pane_session "$pane")
+  [[ -n "$cur" ]] || die "no claude session in this pane — is one running?"
+  root=$(root_of "$cur")
+  [[ -n "$(node_field "$root" name)" ]] || die "nothing to digest — branch first (prefix+B) so the session is tracked"
+  for o in $(descendants "$root"); do
+    dir=$(node_field "$o" dir)
+    src=$(session_file "$o" "$dir")
+    [[ -s "$src" ]] || continue
+    # BFS hands us parents before children; pairs is the old→new id table
+    # (bash 3.2: no associative arrays). A node whose parent yielded no
+    # digest is dropped along with its subtree.
+    np=$(_mapped "$(node_field "$o" parent)" $pairs)
+    [[ -n "$np" || "$o" == "$root" ]] || continue
+    new=$(new_uuid)
+    dst=$(session_file "$new" "$dir")
+    digest_file "$src" "$dst" "$new"
+    was=$((was + $(stat -f %z "$src"))); now=$((now + $(stat -f %z "$dst")))
+    # the digested root re-enters the tree as a fresh branch of the original
+    [[ "$o" == "$root" ]] && np="$root"
+    jq_update --arg old "$o" --arg new "$new" --arg parent "$np" \
+      --argjson isroot "$([[ "$o" == "$root" ]] && echo true || echo false)" \
+      --argjson ts "$(date +%s)" \
+      '. + [(.[] | select(.id==$old) | .id=$new | .parent=$parent
+             | .window="" | .pane=""
+             | if $isroot then .name+=" ⌁" | .created=$ts else . end)]'
+    pairs+="$o $new "
+    n=$((n + 1))
+  done
+  ((n)) || die "nothing to digest — no transcripts found for this topic"
+  local msg
+  msg="digested $n session(s), $(hsize "$was") → $(hsize "$now") — open the ⌁ copy from the tree (prefix+T)"
+  echo "lemux: $msg"
+  [[ -n "${TMUX:-}" ]] && tmux display-message "lemux: $msg" || true
+}
+
 pwrap() { # firstprefix contprefix viswidth text — fold to the preview width with a hanging indent
   local fp="$1" cp="$2" vis="$3" text="$4" body
   body=$((${FZF_PREVIEW_COLUMNS:-72} - vis)); ((body >= 20)) || body=20
@@ -783,8 +857,10 @@ cmd_init() { # print tmux keybindings (absolute paths — PATH-proof)
 # prefix + B          branch on the text you just copied (select + cmd-C first)
 # prefix + T          open the branch tree navigator
 # prefix + X          delete the current pane's branch (+ subtree)
+# prefix + D          digest: compact copy of this topic (prompts + replies only)
 bind-key B run-shell "$self _popup 78% 45% ask '#{pane_id}'"
 bind-key T run-shell "$self _popup 85% 70% tree '#{pane_id}'"
+bind-key D run-shell -b "$self digest '#{pane_id}' >/dev/null"
 bind-key X confirm-before -p "lemux: delete this branch and its subtree? (y/n)" "run-shell \"$self rm --pane '#{pane_id}'\""
 # <<< lemux <<<
 EOF
@@ -807,6 +883,10 @@ Any claude session inside tmux is branchable — plain claude, --continue,
   lemux rm <name|id>     branch: delete it + its subtree (transcripts too)
                          topic name: untrack the topic — side-quest transcripts
                          are deleted, the root conversation is kept
+  lemux digest <pane>    compact copy of the pane's whole topic — same tree,
+                         new sessions holding only your prompts and claude's
+                         replies (tool calls, results and meta records
+                         stripped); the originals stay untouched
   lemux init             print tmux keybindings (append to ~/.tmux.conf)
 
 Typical flow: run claude in tmux → chat → select text with the mouse and hit
@@ -825,6 +905,7 @@ case "${1:-help}" in
   tree)     shift; cmd_tree "$@" ;;
   jump)     shift; cmd_jump "$@" ;;
   rm)       shift; cmd_rm "$@" ;;
+  digest)   shift; cmd_digest "$@" ;;
   init)     shift; cmd_init "$@" ;;
   _hello)   shift; cmd__hello "$@" ;;
   _list)    shift; cmd__list "$@" ;;
