@@ -92,7 +92,7 @@ session stays "waiting" — spared — until you next interact with it.
 | Keys | Action |
 |------|--------|
 | select text, copy it, `prefix + B` | **Branch**: fork this session into a new window, seeded with what you copied |
-| `prefix + T` | **Tree**: this session's side quests — type to filter, enter to jump, `ctrl-x` to delete |
+| `prefix + T` | **Tree**: this session's side quests — type to filter, enter to jump, `ctrl-r` to rename, `ctrl-x` to delete |
 | `prefix + X` | **Delete** the current pane's branch and its whole subtree |
 
 The flow: while reading an assistant response, select the sentence you want to

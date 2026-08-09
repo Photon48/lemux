@@ -538,6 +538,22 @@ _walk() { # id prefix position(root|mid|last)
   done
 }
 
+cmd__rename() { # id — edit a branch's name in place (fzf as the line editor,
+  # same trick as the ask popup — bash 3.2's read -e can't edit or cancel)
+  init_state
+  local id="${1:?}" old new rc=0 win
+  old=$(node_field "$id" name)
+  [[ -n "$old" ]] || return 0
+  new=$(: | fzf --print-query --query "$old" --prompt 'rename> ' --layout=reverse --no-info \
+    --header 'rename this branch · enter: apply · esc: keep as is') || rc=$?
+  ((rc == 130)) && return 0
+  new=$(printf '%s' "$new" | collapse_ws | cut -c1-40)
+  [[ -n "$new" && "$new" != "$old" ]] || return 0
+  jq_update --arg id "$id" --arg n "$new" 'map(if .id==$id then .name=$n else . end)'
+  win=$(node_field "$id" window)
+  window_alive "$win" && tmux rename-window -t "$win" "$new" 2>/dev/null || true
+}
+
 cmd_tree() { # <pane_id> — fzf navigator over this session's own side quests
   init_state
   local pane="${1:?usage: lemux tree <pane_id>}" cur root self out list pos
@@ -552,9 +568,10 @@ cmd_tree() { # <pane_id> — fzf navigator over this session's own side quests
   out=$(printf '%s\n' "$list" | fzf --ansi --delimiter='\t' --with-nth=2 --no-sort --layout=reverse \
     --bind="start:pos(${pos:-1})" \
     --prompt='lemux> ' \
-    --header='enter: jump · ctrl-x: delete branch · esc: close' \
+    --header='enter: jump · ctrl-r: rename · ctrl-x: delete branch · esc: close' \
     --preview="$self _preview {1}" --wrap-sign='  ' \
     --preview-window=right,55%,wrap,border-left \
+    --bind="ctrl-r:execute($self _rename {1})+reload($self _list $root $cur)" \
     --bind="ctrl-x:execute-silent($self rm {1})+reload($self _list $root $cur)") || return 0
   cmd_jump "${out%%$'\t'*}"
 }
@@ -764,6 +781,7 @@ case "${1:-help}" in
   _popup)   shift; cmd__popup "$@" ;;
   _type)    shift; cmd__type "$@" ;;
   _name)    shift; cmd__name "$@" ;;
+  _rename)  shift; cmd__rename "$@" ;;
   _state)   shift; cmd__state "$@" ;;
   _preview) shift; cmd__preview "$@" ;;
   _run)     shift; cmd__run "$@" ;;
