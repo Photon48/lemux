@@ -617,7 +617,7 @@ cmd_tree() { # <pane_id> — fzf navigator over this session's own side quests
   out=$(printf '%s\n' "$list" | fzf --ansi --delimiter='\t' --with-nth=2 --no-sort --layout=reverse \
     --bind="start:pos(${pos:-1})" \
     --prompt='lemux> ' \
-    --header='enter: jump · ctrl-r: rename · ctrl-x: delete branch · esc: close' \
+    --header=$'enter: jump · ctrl-r: rename\nctrl-x: delete branch · esc: close' \
     --preview="$self _preview {1}" --wrap-sign='  ' \
     --preview-window=right,55%,wrap,border-left \
     --bind="ctrl-r:execute($self _rename {1})+reload($self _list $root $cur)" \
