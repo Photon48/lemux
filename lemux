@@ -101,6 +101,19 @@ focus_window() {
 # No state file (pre-hook session) reads as idle.
 state_of() { cat "$LEMUX_DIR/state/$1" 2>/dev/null || echo idle; }
 
+# A turn's unseen outcome (done|waiting|error) — set when the turn ends
+# while the user is elsewhere, shown in the tree, cleared once they enter
+# the session (jump, tree-from-it, or any interaction with it).
+notify_of() { cat "$LEMUX_DIR/notify/$1" 2>/dev/null || true; }
+clear_notify() { rm -f "$LEMUX_DIR/notify/$1"; }
+
+# Is the session's pane on-screen right now — active pane of the current
+# window of an attached client? If so, the user is watching; no flag needed.
+pane_watched() { # sid
+  tmux list-panes -a -F '#{@lemux_session}|#{window_active}|#{pane_active}|#{session_attached}' 2>/dev/null |
+    awk -F'|' -v sid="$1" '$1==sid && $2==1 && $3==1 && $4>=1 {found=1} END {exit !found}'
+}
+
 ago() { # epoch → "5m ago"
   local d=$(($(date +%s) - $1))
   if ((d < 60)); then echo "${d}s ago"
@@ -117,7 +130,7 @@ hook_block() { # the lifecycle hooks JSON — shared by hooks.json and `lemux se
     PermissionRequest: [{hooks: [{type: "command", command: ($s + " _state waiting")}]}],
     Elicitation:       [{hooks: [{type: "command", command: ($s + " _state waiting")}]}],
     Stop:              [{hooks: [{type: "command", command: ($s + " _state idle")}]}],
-    StopFailure:       [{hooks: [{type: "command", command: ($s + " _state idle")}]}],
+    StopFailure:       [{hooks: [{type: "command", command: ($s + " _state error")}]}],
     SessionEnd:        [{hooks: [{type: "command", command: ($s + " _state gone")}]}]
   }'
 }
@@ -178,12 +191,24 @@ cmd__state() { # <state> — hook callback; session_id arrives on stdin as JSON
   local s="${1:?}" sid
   sid=$(jq -r '.session_id // ""' 2>/dev/null) || sid=""
   [[ -n "$sid" ]] || exit 0
-  mkdir -p "$LEMUX_DIR/state"
-  if [[ "$s" == "gone" ]]; then
-    rm -f "$LEMUX_DIR/state/$sid"
-  else
-    printf '%s' "$s" >"$LEMUX_DIR/state/$sid"
-  fi
+  mkdir -p "$LEMUX_DIR/state" "$LEMUX_DIR/notify"
+  case "$s" in
+    gone)
+      # session over — state goes, but an unseen done/error flag stays
+      # visible in the tree until the user acknowledges it
+      rm -f "$LEMUX_DIR/state/$sid" ;;
+    busy)
+      # the user is driving this session — whatever was pending, they saw it
+      printf 'busy' >"$LEMUX_DIR/state/$sid"
+      clear_notify "$sid" ;;
+    idle|waiting|error)
+      printf '%s' "${s/error/idle}" >"$LEMUX_DIR/state/$sid"
+      if pane_watched "$sid"; then
+        clear_notify "$sid"     # they watched it happen — nothing to flag
+      else
+        printf '%s' "${s/idle/done}" >"$LEMUX_DIR/notify/$sid"
+      fi ;;
+  esac
 }
 
 cmd__hello() { # SessionStart hook: mark idle and tag the pane, so every claude
@@ -196,6 +221,7 @@ cmd__hello() { # SessionStart hook: mark idle and tag the pane, so every claude
   [[ -n "$sid" ]] || exit 0
   mkdir -p "$LEMUX_DIR/state"
   printf 'idle' >"$LEMUX_DIR/state/$sid"
+  clear_notify "$sid"   # opening the session acknowledges whatever it was flying
   [[ -n "${TMUX:-}" && -n "${TMUX_PANE:-}" ]] || exit 0
   cwd=$(jq -r '.cwd // ""' <<<"$json" 2>/dev/null) || cwd=""
   tmux set-option -p -t "$TMUX_PANE" @lemux_session "$sid" 2>/dev/null || true
@@ -497,8 +523,13 @@ cmd__run() { # id dir mode [parent] — wrapper that tags the pane and execs cla
   "$CLAUDE_BIN" --settings "$LEMUX_DIR/hooks.json" "${args[@]}" || rc=$?
   rm -f "$LEMUX_DIR/state/$id"
   # 130 is ctrl-c — a normal way to leave. Anything else keeps the pane
-  # (remain-on-exit) so the error stays readable.
-  ((rc)) && ((rc != 130)) && exit "$rc"
+  # (remain-on-exit) so the error stays readable, and flags the branch in
+  # the tree so a crash in a background window doesn't die unnoticed.
+  if ((rc)) && ((rc != 130)); then
+    mkdir -p "$LEMUX_DIR/notify"
+    printf 'error' >"$LEMUX_DIR/notify/$id"
+    exit "$rc"
+  fi
 
   # Exiting claude hands this window over to a plain shell in the branch's
   # directory — the same "back at the prompt" a hand-started claude gives.
@@ -522,10 +553,27 @@ _walk() { # id prefix position(root|mid|last)
     mid)  glyph="├─ "; child_prefix="${prefix}│  " ;;
     last) glyph="└─ "; child_prefix="${prefix}   " ;;
   esac
-  local status="○"
-  window_alive "$(node_field "$id" window)" && status="●"
+  local status="○" alive=0
+  window_alive "$(node_field "$id" window)" && { status="●"; alive=1; }
+  # the outcome badge: a turn that ended while you were elsewhere (done /
+  # waiting on user / error, cleared once you enter the session), or the
+  # live state of a session still working in the background
+  local ind="" st=idle note
+  ((alive)) && st=$(state_of "$id")
+  note=$(notify_of "$id")
+  if [[ "$id" != "${CUR:-}" ]]; then
+    if [[ "$st" == waiting || "$note" == waiting ]]; then
+      ind=$'  \033[1;31m● waiting on user\033[0m'
+    elif [[ "$note" == error ]]; then
+      ind=$'  \033[1;31m● error\033[0m'
+    elif [[ "$note" == done ]]; then
+      ind=$'  \033[1;32m● done\033[0m'
+    elif [[ "$st" == busy ]]; then
+      ind=$'  \033[2m● running\033[0m'
+    fi
+  fi
   local line
-  line=$(printf '%s%s%s %s' "$prefix" "$glyph" "$status" "$(node_field "$id" name)")
+  line=$(printf '%s%s%s %s%s' "$prefix" "$glyph" "$status" "$(node_field "$id" name)" "$ind")
   # the session the navigator was opened from wears its whole line highlighted
   [[ "$id" == "${CUR:-}" ]] && line=$'\033[1;30;43m '"$line"$' \033[0m'
   printf '%s\t%s\n' "$id" "$line"
@@ -559,6 +607,7 @@ cmd_tree() { # <pane_id> — fzf navigator over this session's own side quests
   local pane="${1:?usage: lemux tree <pane_id>}" cur root self out list pos
   cur=$(pane_session "$pane")
   [[ -n "$cur" ]] || popup_die "no claude session in this pane — new setup? run: lemux setup, then restart claude"
+  clear_notify "$cur"   # you're inside this one — its flag is moot
   root=$(root_of "$cur")
   [[ -n "$(node_field "$root" name)" ]] || popup_die "no side quests yet — copy some text and branch with prefix+B first"
   self=$(printf '%q' "$SELF")
@@ -578,6 +627,7 @@ cmd_tree() { # <pane_id> — fzf navigator over this session's own side quests
 
 cmd_jump() { # id — focus the branch's window, reviving it if closed
   local id="${1:?usage: lemux jump <id>}" win
+  clear_notify "$id"   # entering the session acknowledges its flag
   win=$(node_field "$id" window)
   if window_alive "$win"; then
     focus_window "$win"
@@ -623,7 +673,7 @@ cmd_rm() { # <topic-name | id> | --pane <pane_id> — delete a branch or untrack
     local win dir
     win=$(node_field "$n" window)
     window_alive "$win" && tmux kill-window -t "$win" 2>/dev/null || true
-    rm -f "$LEMUX_DIR/state/$n"
+    rm -f "$LEMUX_DIR/state/$n" "$LEMUX_DIR/notify/$n"
     # Root transcripts are never auto-deleted; branch transcripts are.
     if ! { [[ "$n" == "$id" ]] && [[ -z "$root_parent" ]]; }; then
       dir=$(node_field "$n" dir)

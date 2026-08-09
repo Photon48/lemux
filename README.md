@@ -81,6 +81,13 @@ prompt in that window, in the branch's directory — nothing else closes.
 (Switching windows with tmux's own keys is tmux's business — lemux prunes
 only when it moves you.)
 
+The tree flags what happened while you were elsewhere: a session that
+finished its turn shows a green `● done`, one stuck at a permission or
+input dialog shows a red `● waiting on user`, one that crashed shows a red
+`● error`, and one still mid-turn shows a dim `● running`. Done/error
+flags stick — surviving even the window closing — until you enter the
+session (jump to it, or open the tree from inside it), then they clear.
+
 Pruning never kills a session that's working or waiting on you. Every claude
 session carries lemux's hooks (merged into `~/.claude/settings.json` by
 `lemux setup`; lemux-launched sessions also get them injected via
