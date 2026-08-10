@@ -1,251 +1,161 @@
 # lemux
 
-**A session manager for coding agents.** Branch a Claude Code session into a
-side quest, supervise several at once, and reclaim a context window that filled
-up with tool calls — all from tmux.
+**A session manager for coding agents.** Branch, supervise, and un-bloat your
+Claude Code sessions — from tmux.
 
 <p align="center">
-  <img src="assets/flow-trip.svg" width="820"
-       alt="The whole loop in one take: an answer drops an aside, you highlight it, prefix+B branches it with your question, the side quest answers with the full parent context, prefix+T zooms you back out to the parent, and the main conversation never noticed.">
+  <img src="assets/demo.gif" width="820"
+       alt="Highlighting a line in an answer, hitting prefix+B, and the side quest opening in its own window with the full parent conversation behind it.">
 </p>
-
-A coding agent session is one long linear thread, and that's where the trouble
-starts. You want to check *why* it chose that lock, or whether the migration is
-safe — but asking inline burns context on a detour and derails the work you were
-doing. So you either don't ask, or you start a fresh session and re-explain
-everything. Meanwhile the session that's been running all afternoon is 400k
-tokens deep in file dumps and test output, and you've got three agents going in
-three tabs with no idea which one is waiting on you.
-
-lemux fixes all three.
-
-### Ask anything without derailing the main thread
-
-Highlight any part of an answer, hit `prefix + B`, type your question. It opens
-as a **fork** — a real Claude Code session that inherits the *entire* parent
-conversation, in its own window. Ask your tangent, get the answer with full
-context, delete it. Nothing flows back upstream; the main session never knew it
-existed. Branch as deep as you like.
-
-### Get your context window back
-
-`ctrl-d` rewrites a session into a compact copy holding only the conversation —
-every prompt, every reply — with tool calls, file dumps, test output, thinking
-and images stripped. On a real 11.2 MB session:
-
-**498,140 → 58,910 tokens.** Same conversation, nothing forgotten, an eighth of
-the window spent. You keep working in the copy; the original is archived, not
-deleted, and any of it revives with its full history when you need it.
-
-### Supervise the agents you have running
-
-One tree shows every session in the topic and what happened while you were
-elsewhere: `● done`, `● waiting on user`, `● error`, `● running` — from Claude
-Code's own lifecycle hooks, not guesswork. Jump between them with enter. lemux
-never closes a session that's working or waiting on you.
-
-### No ceremony
-
-Any claude session running in tmux is already managed — plain `claude`,
-`--continue`, `--resume`, all of it. Nothing to launch differently, nothing to
-declare, no wrapper to remember. Install once and your existing habits work.
-
-## How it works
-
-lemux is one bash script on top of things that already exist — no daemon, no
-database, no wrapper around the agent:
-
-- Claude Code stores every session as a JSONL transcript and natively supports
-  `--resume <id> --fork-session` — a fork is a full snapshot copy of the
-  parent transcript under a new session ID. The parent is never touched.
-- tmux provides the windows, the text selection (copy-mode), and the popup.
-- fzf renders the branch tree and jumps between windows.
-
-The only state lemux keeps is `~/.lemux/tree.json`: one entry per session with
-its parent, the excerpt it branched on, and which tmux window it lives in.
-A `SessionStart` hook (installed once by `lemux setup`) makes every claude
-session tag its tmux pane with its session ID as it starts — that is how any
-session, however launched, is branchable with zero ceremony.
-
-## Install
-
-Requires: `tmux` ≥ 3.2, `fzf` ≥ 0.48, `jq`, `claude`.
 
 ```sh
 curl -fsSL https://raw.githubusercontent.com/Photon48/lemux/main/install.sh | bash
 ```
 
-Or from a checkout: `./install.sh`. Either way it fetches the script and hands
-off to `lemux setup`, which does the whole job: copies `lemux` to
-`~/.local/bin`, writes the keybindings into `~/.tmux.conf`, merges lemux's
-lifecycle hooks into `~/.claude/settings.json` (your own hooks and settings
-are untouched), and reloads tmux. Everything is idempotent — re-running
-replaces lemux's own entries and nothing else.
+Needs `tmux` ≥ 3.2, `fzf` ≥ 0.48, `jq`, `claude`. Then run claude in tmux, any
+way you already do.
 
-To update from a checkout: `git pull`, then `./lemux setup`. (Curl users
-re-run the one-liner.) Uninstall by deleting
-`~/.local/bin/lemux`, the `>>> lemux >>>` block in `~/.tmux.conf`, the hook
-entries mentioning `lemux` in `~/.claude/settings.json`, and `~/.lemux`.
+---
 
-## Use
+### Branch a tangent instead of derailing the thread
 
-Run claude inside tmux — any way you like: plain `claude`, `--continue`,
-`--resume`, whatever. There is nothing to start and nothing to declare: every
-session announces itself to lemux as it starts, and the first time you branch
-from it (`prefix + B`) it is enrolled in `~/.lemux` as a topic root, named
-after its folder. From then on it's a normal lemux topic — tree, jumping,
-pruning, all of it. Topics are scoped to the folder they run in, exactly like
-`claude --resume`.
+<img src="assets/flow-trip.svg" width="820" alt="An answer mentions something worth chasing; you highlight it, prefix+B forks it into a side quest with the full parent context, and the main thread carries on untouched.">
 
-To stop tracking a topic entirely, `lemux rm <name>`: its windows close, its
-side-quest transcripts are deleted, and the root conversation is kept on disk
-(it's yours — visible in `claude --resume`), just no longer lemux's business.
-`lemux rm` on a branch id (or `prefix + X` inside one) deletes that side
-quest and its subtree, transcripts included.
+Highlight → `prefix + B` → ask. Opens as a fork with the **whole** parent
+conversation. Delete it after; nothing flows back.
 
-Open windows follow a one-window discipline: a topic only ever has the
-session you're inside open. Branching closes the parent behind you, and
-jumping in the tree drops you anywhere — every other window in the topic
-closes, ancestors and sibling side quests alike. The tree and every
-transcript survive pruning, so anything closed is one `prefix + T`, enter
-away. Exiting a session's claude (ctrl-c) simply leaves you at a shell
-prompt in that window, in the branch's directory — nothing else closes.
-(Switching windows with tmux's own keys is tmux's business — lemux prunes
-only when it moves you.)
+### Get your context window back
 
-The tree flags what happened while you were elsewhere: a session that
-finished its turn shows a green `● done`, one stuck at a permission or
-input dialog shows a red `● waiting on user`, one that crashed shows a red
-`● error`, and one still mid-turn shows a dim `● running`. Done/error
-flags stick — surviving even the window closing — until you enter the
-session (jump to it, or open the tree from inside it), then they clear.
+<img src="assets/feature-digest.svg" width="820" alt="Digest: before, 498,140 tokens of tool calls, file dumps, test output and images. After, 58,910 tokens holding every prompt and every reply. 8.5x less context, 11.2 MB down to 235 KB on disk.">
 
-Pruning never kills a session that's working or waiting on you. Every claude
-session carries lemux's hooks (merged into `~/.claude/settings.json` by
-`lemux setup`; lemux-launched sessions also get them injected via
-`--settings`) that report its lifecycle: busy during a turn, waiting at a
-permission or input dialog, idle between turns. Only idle windows are pruned.
-One known gap: Esc-cancelling a permission dialog emits no event, so that
-session stays "waiting" — spared — until you next interact with it.
+`ctrl-d` rewrites the session as prose only — every prompt, every reply, no
+tool traffic.
 
-| Keys | Action |
-|------|--------|
-| select text, copy it, `prefix + B` | **Branch**: fork this session into a new window, seeded with what you copied |
-| `prefix + T` | **Tree**: this session's side quests — type to filter, enter to jump, `ctrl-r` to rename, `ctrl-x` to delete, `ctrl-d` to digest the topic, `tab` for the archives |
-| `prefix + X` | **Delete** the current pane's branch and its whole subtree |
+### See which agent needs you
 
-Digest (`ctrl-d` in the tree) walks the topic — the root and every branch under
-it — and writes a parallel tree of new sessions holding only the conversation:
-your prompts and Claude's prose. Tool calls, their results, attachments and
-file snapshots are dropped. The popup first shows what will happen — each
-branch's shrinkage and your session's real context (read from Claude's own
-usage records) against the estimated context after — and commits only on
-enter. You land in the copy, `<topic> ⌁`, and the pre-digest tree is archived —
-detached completely, so the working tree stays clean.
+<img src="assets/feature-supervise.svg" width="820" alt="The tree navigator listing a topic's sessions with live status: done, waiting on user, running.">
 
-Archives live on their own **timeline**, one entry per digest, reached with
-`tab` in the tree navigator (the tab appears once a topic has been digested):
+`prefix + T`. Status comes from Claude Code's lifecycle hooks — lemux never
+closes a session that's working.
 
-```
-  archives>
-  the pre-digest trees, newest first — everything digest left behind
-  enter: browse it · tab: back to the live tree · esc: close
+### Nothing is thrown away
 
-  ⌁ NixieWatchV2   digested 2h ago · 9 session(s)
-  ⌁ NixieWatchV2   digested 3d ago · 6 session(s)
-```
+<img src="assets/feature-archives.svg" width="820" alt="The archives timeline: each digest keeps the tree it replaced, oldest to newest, ending in the live copy.">
 
-Enter opens that generation's full tree, where enter on *any* session revives
-it with its complete tool-call history. Digest again and the new copy simply
-becomes the newest link — the chain keeps as many generations as you make.
-Archived transcripts are never auto-deleted (`rm` spares them the way it spares
-roots), and untracking a topic takes its whole timeline with it.
+`tab` in the tree. Any generation reopens with its full tool-call history.
+
+---
+
+| Keys | |
+|---|---|
+| `prefix + B` | branch on the text you copied |
+| `prefix + T` | tree — `enter` jump · `ctrl-d` digest · `tab` archives · `ctrl-r` rename · `ctrl-x` delete |
+| `prefix + X` | delete this branch + subtree |
+
+<details>
+<summary><b>How it works</b></summary>
+
+One bash script over things that already exist — no daemon, no database, no
+wrapper around the agent:
+
+- Claude Code stores every session as a JSONL transcript and supports
+  `--resume <id> --fork-session`. A fork is a full snapshot copy under a new
+  session ID; the parent is never touched.
+- tmux provides the windows, the text selection, and the popups.
+- fzf renders the tree.
+
+State is one file, `~/.lemux/tree.json`: per session, its parent, the excerpt
+it branched on, and its tmux window. A `SessionStart` hook makes every claude
+session tag its pane as it starts — that's why anything running in tmux is
+branchable with zero ceremony.
+
+</details>
+
+<details>
+<summary><b>Digest — what it keeps, and the numbers</b></summary>
+
+Text is the whole rule: any content block that isn't prose is dropped, images
+included. What survives is what you'd get by reading the conversation back.
 
 A transcript is a *tree*, not a list — retries, edited messages and `/clear`
-leave abandoned branches sitting in the file. Digest walks `parentUuid` back
-from the newest leaf and keeps only that chain, so the copy is the conversation
-you actually had. On a real session that dropped 33% of the records as dead
-ends.
+leave abandoned branches in the file. Digest walks `parentUuid` back from the
+newest leaf and keeps only that chain. On a real session that dropped 33% of
+records as dead ends.
 
-The point is context. Measured on a real 11.2 MB session, resuming each and
-reading the API's own token usage:
+Measured on an 11.2 MB session by resuming each and reading the API's own
+token usage:
 
 | | tokens loaded |
 |---|---|
-| the original session | 498,140 |
+| the original | 498,140 |
 | its digest | 58,910 |
-| an empty session in the same repo (system prompt, tools, MCP, CLAUDE.md) | 24,003 |
+| empty session, same repo (system prompt, tools, MCP, CLAUDE.md) | 24,003 |
 
-So the conversation everyone actually cares about — every prompt, every reply,
-the whole history — is about 35k tokens. The other 460k was tool traffic and
-pasted screenshots. A digested session resumes with the full story and about an
-eighth of the window spent, and the file goes 11.2 MB → 235 KB.
+So the entire conversation is ~35k tokens; the other 460k was tool traffic and
+screenshots. The popup shows your real numbers before writing anything, and
+commits only on `enter`.
 
-Text is the whole rule: any content block that isn't prose is dropped, images
-included. What survives is exactly what you'd get by reading the conversation
-back.
+Digesting archives the old tree rather than deleting it. Archives are detached
+from the working tree and stacked on a timeline behind `tab`; `rm` spares
+archived transcripts the way it spares roots, and untracking a topic takes its
+whole timeline with it.
 
-The flow: while reading an assistant response, select the sentence you want to
-dig into with the mouse and copy it (`cmd-C` on macOS), then hit `prefix + B`.
-A popup shows what you're branching on and asks for your question:
+</details>
 
-```
-  branch a side quest  (from litefs)
+<details>
+<summary><b>Topics, windows, and pruning</b></summary>
 
-  on "copy-on-write B-tree so writers never block readers"
+Every session announces itself as it starts; the first branch (`prefix + B`)
+enrols it as a topic root named after its folder. Topics are scoped per folder,
+like `claude --resume`.
 
-  type your question and hit enter · empty enter opens the branch so you
-  can type there · ctrl-c cancels
+Open windows follow a one-window discipline: a topic only ever has the session
+you're inside open. Branching closes the parent behind you; jumping in the tree
+closes everything else. The tree and every transcript survive pruning, so
+anything closed is one `prefix + T`, enter away. Exiting claude (ctrl-c) leaves
+you at a shell in that window — nothing else closes.
 
-  > why does that avoid write locks_
-```
+Pruning never kills a session that's busy or waiting on you. One known gap:
+Esc-cancelling a permission dialog emits no event, so that session stays
+"waiting" — spared — until you next interact with it.
 
-Enter opens a new window running a fork of your session — full parent context
-— with the question already sent as:
+`prefix + T` only ever shows the tree you're in: from any window you see that
+root and its descendants, never another topic's branches.
 
-```
-Re "copy-on-write B-tree so writers never block readers": why does that avoid write locks
-```
+</details>
 
-Hit enter on an empty question instead and the branch opens with just the
-excerpt waiting in the input box, for you to type there.
+<details>
+<summary><b>Install details, updating, uninstall</b></summary>
 
-Go as deep as you like — branch the branch, branch a different excerpt of the
-same message, whatever. `prefix + T` shows where you are. It only ever shows
-the tree you're currently in: from any window — the root or a side quest six
-levels down — you see that root and its descendants, never another topic's
-branches. Navigating is about *this* piece of work, not about every session on
-your machine.
+`install.sh` fetches the script and hands off to `lemux setup`, which copies
+`lemux` to `~/.local/bin`, writes keybindings into `~/.tmux.conf`, merges
+lifecycle hooks into `~/.claude/settings.json` (your own settings untouched),
+and reloads tmux. All idempotent.
 
-```
-● litefs
-├─ ● copy-on-write B-tree so w…
-│  └─ ○ fsync vs fdatasync
-└─ ● raft leases
-```
+Update from a checkout with `git pull && ./lemux setup`; curl users re-run the
+one-liner. Uninstall by deleting `~/.local/bin/lemux`, the `>>> lemux >>>`
+block in `~/.tmux.conf`, the lemux hook entries in `~/.claude/settings.json`,
+and `~/.lemux`.
 
-`●` = window open, `○` = window closed (enter revives it via `--resume`).
-The preview pane tells each branch's story: the one-line briefs written when
-each ancestor diverged, then the exact highlight and question this one
-branched on.
+Sessions already running when you install haven't announced themselves — the
+hook only fires on launch, so restart claude in that pane (`claude --continue`
+picks up where you were).
 
-## Notes
+</details>
 
-- **Deleting**: `rm` on a branch deletes its tmux window, its transcript file,
-  and its entire subtree. `rm` on a topic name untracks the topic but always
-  keeps the root transcript.
+<details>
+<summary><b>Notes</b></summary>
+
+- **Deleting**: `rm` on a branch takes its window, transcript and subtree.
+  `rm` on a topic name untracks it but always keeps the root transcript.
 - **Forks are cheap**: a fork shares its full prefix with the parent, so the
-  first message usually hits Anthropic's prompt cache.
-- **Where the excerpt comes from**: the system clipboard (`pbpaste`), falling
-  back to tmux's paste buffer. Because lemux puts each branch in its own
-  full-width *window* — never a split — native mouse selection can't pick up
-  a neighbouring pane's text.
-- **Big copies don't flood the UI**: a large multi-line copy shows as its
-  first words plus a `⟨N lines copied⟩` badge, in both the branch popup and
-  the tree preview; the branch seed keeps the first 600 characters.
-- Sessions already running when you install (or update) lemux haven't
-  announced themselves yet — the SessionStart hook only fires on launch, so
-  restart claude in that pane (`claude --continue` picks up right where you
-  were) to make it branchable.
-- The excerpt pre-fill waits for claude's UI to render (up to ~15 s) before
-  typing; it never presses enter, so nothing is ever auto-submitted.
+  first message usually hits the prompt cache.
+- **Excerpts** come from the system clipboard (`pbpaste`), falling back to
+  tmux's paste buffer. Branches open as full-width windows — never splits — so
+  mouse selection can't pick up a neighbouring pane.
+- **Big copies** show as first words plus a `⟨N lines copied⟩` badge; the seed
+  keeps the first 600 characters.
+- The pre-fill waits for claude's UI to render (up to ~15s) and never presses
+  enter, so nothing is auto-submitted.
+
+</details>
