@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
-# lemux — a tmux-native, node-based navigator for branched Claude Code sessions.
-# Branch from a highlighted excerpt, wander deep, jump around, delete side quests.
+# lemux — a session manager for coding agents, native to tmux.
+# Branch a session into a side quest, supervise several at once, and digest a
+# bloated context back down to the conversation itself.
 set -euo pipefail
 
 SELF="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/$(basename "${BASH_SOURCE[0]}")"
@@ -1021,10 +1022,12 @@ EOF
 
 cmd_help() {
   cat <<'EOF'
-lemux — tmux-native navigator for branched Claude Code sessions
+lemux — a session manager for coding agents, native to tmux
 
-Any claude session inside tmux is branchable — plain claude, --continue,
---resume, whatever. Its first branch (prefix+B) enrols it as a topic.
+Branch a Claude Code session into a side quest, supervise several at once,
+and reclaim a context window that filled up with tool calls. Any claude
+session inside tmux is already managed — plain claude, --continue, --resume,
+whatever. Its first branch (prefix+B) enrols it as a topic.
 
   lemux setup            install or update everything: ~/.local/bin copy,
                          tmux keybindings, claude hooks (idempotent — run it

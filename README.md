@@ -1,27 +1,59 @@
 # lemux
 
-A tmux-native, node-based navigator for **branched Claude Code sessions**.
+**A session manager for coding agents.** Branch a Claude Code session into a
+side quest, supervise several at once, and reclaim a context window that filled
+up with tool calls — all from tmux.
 
 <p align="center">
   <img src="assets/flow-trip.svg" width="820"
        alt="The whole loop in one take: an answer drops an aside, you highlight it, prefix+B branches it with your question, the side quest answers with the full parent context, prefix+T zooms you back out to the parent, and the main conversation never noticed.">
 </p>
 
-A single Claude Code conversation is linear. When you're learning or digging
-into a topic, an assistant message often contains three things you want to
-chase — but chasing them inline bloats your context and derails the main plot.
+A coding agent session is one long linear thread, and that's where the trouble
+starts. You want to check *why* it chose that lock, or whether the migration is
+safe — but asking inline burns context on a detour and derails the work you were
+doing. So you either don't ask, or you start a fresh session and re-explain
+everything. Meanwhile the session that's been running all afternoon is 400k
+tokens deep in file dumps and test output, and you've got three agents going in
+three tabs with no idea which one is waiting on you.
 
-lemux lets you **highlight any part of an assistant response and fork it into
-a side quest**: a real, fully queryable Claude Code session that inherits the
-*entire* parent conversation, opens in its own tmux window, and can itself be
-branched further. When a side quest is done, delete it — nothing flows back
-upstream, your main session never knew it existed.
+lemux fixes all three.
 
-There is no merge. Just diverge, explore, delete.
+### Ask anything without derailing the main thread
+
+Highlight any part of an answer, hit `prefix + B`, type your question. It opens
+as a **fork** — a real Claude Code session that inherits the *entire* parent
+conversation, in its own window. Ask your tangent, get the answer with full
+context, delete it. Nothing flows back upstream; the main session never knew it
+existed. Branch as deep as you like.
+
+### Get your context window back
+
+`ctrl-d` rewrites a session into a compact copy holding only the conversation —
+every prompt, every reply — with tool calls, file dumps, test output, thinking
+and images stripped. On a real 11.2 MB session:
+
+**498,140 → 58,910 tokens.** Same conversation, nothing forgotten, an eighth of
+the window spent. You keep working in the copy; the original is archived, not
+deleted, and any of it revives with its full history when you need it.
+
+### Supervise the agents you have running
+
+One tree shows every session in the topic and what happened while you were
+elsewhere: `● done`, `● waiting on user`, `● error`, `● running` — from Claude
+Code's own lifecycle hooks, not guesswork. Jump between them with enter. lemux
+never closes a session that's working or waiting on you.
+
+### No ceremony
+
+Any claude session running in tmux is already managed — plain `claude`,
+`--continue`, `--resume`, all of it. Nothing to launch differently, nothing to
+declare, no wrapper to remember. Install once and your existing habits work.
 
 ## How it works
 
-lemux is ~300 lines of bash on top of things that already exist:
+lemux is one bash script on top of things that already exist — no daemon, no
+database, no wrapper around the agent:
 
 - Claude Code stores every session as a JSONL transcript and natively supports
   `--resume <id> --fork-session` — a fork is a full snapshot copy of the
@@ -182,7 +214,8 @@ Go as deep as you like — branch the branch, branch a different excerpt of the
 same message, whatever. `prefix + T` shows where you are. It only ever shows
 the tree you're currently in: from any window — the root or a side quest six
 levels down — you see that root and its descendants, never another topic's
-branches. Navigating is about *this* conversation, not about managing sessions.
+branches. Navigating is about *this* piece of work, not about every session on
+your machine.
 
 ```
 ● litefs
