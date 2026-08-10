@@ -121,18 +121,17 @@ reading the API's own token usage:
 | | tokens loaded |
 |---|---|
 | the original session | 498,140 |
-| its digest | 75,317 |
-| its digest, `--no-images` | 58,910 |
+| its digest | 58,910 |
 | an empty session in the same repo (system prompt, tools, MCP, CLAUDE.md) | 24,003 |
 
 So the conversation everyone actually cares about — every prompt, every reply,
-the whole history — is about 35k tokens. The other 460k was tool traffic. A
-digested session resumes with the full story and roughly a sixth of the window
-spent.
+the whole history — is about 35k tokens. The other 460k was tool traffic and
+pasted screenshots. A digested session resumes with the full story and about an
+eighth of the window spent, and the file goes 11.2 MB → 235 KB.
 
-Pasted images survive by default, since they are things you said; they cost
-16k tokens across that session's seven screenshots and dominate the file size
-(2.4 MB vs 235 KB without them). `lemux digest --no-images <pane>` drops them.
+Text is the whole rule: any content block that isn't prose is dropped, images
+included. What survives is exactly what you'd get by reading the conversation
+back.
 
 The flow: while reading an assistant response, select the sentence you want to
 dig into with the mouse and copy it (`cmd-C` on macOS), then hit `prefix + B`.
