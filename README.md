@@ -99,10 +99,10 @@ session stays "waiting" — spared — until you next interact with it.
 | Keys | Action |
 |------|--------|
 | select text, copy it, `prefix + B` | **Branch**: fork this session into a new window, seeded with what you copied |
-| `prefix + T` | **Tree**: this session's side quests — type to filter, enter to jump, `ctrl-r` to rename, `ctrl-x` to delete, `ctrl-g` to digest the topic |
+| `prefix + T` | **Tree**: this session's side quests — type to filter, enter to jump, `ctrl-r` to rename, `ctrl-x` to delete, `ctrl-d` to digest the topic |
 | `prefix + X` | **Delete** the current pane's branch and its whole subtree |
 
-Digest (`ctrl-g` in the tree) walks the topic — the root and every branch under
+Digest (`ctrl-d` in the tree) walks the topic — the root and every branch under
 it — and writes a parallel tree of new sessions holding only the conversation:
 your prompts and Claude's prose. Tool calls, their results, attachments and
 file snapshots are dropped. The popup first shows what will happen — each

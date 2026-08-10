@@ -184,7 +184,7 @@ cmd_setup() { # the whole install, self-contained: bin copy, tmux keys, hooks.
     *) echo "lemux: note: $bin_dir is not on your PATH — add it to use 'lemux' directly" ;;
   esac
   echo "lemux: done — run claude inside tmux (any way) and branch away"
-  echo "lemux: keys: prefix+B branch · prefix+T tree (ctrl-g digests) · prefix+X delete"
+  echo "lemux: keys: prefix+B branch · prefix+T tree (ctrl-d digests) · prefix+X delete"
 }
 
 cmd__state() { # <state> — hook callback; session_id arrives on stdin as JSON
@@ -617,11 +617,11 @@ cmd_tree() { # <pane_id> — fzf navigator over this session's own side quests
   out=$(printf '%s\n' "$list" | fzf --ansi --delimiter='\t' --with-nth=2 --no-sort --layout=reverse \
     --bind="start:pos(${pos:-1})" \
     --prompt='lemux> ' \
-    --header=$'enter: jump · ctrl-r: rename · ctrl-g: digest topic\nctrl-x: delete branch · esc: close' \
+    --header=$'enter: jump · ctrl-r: rename · ctrl-d: digest topic\nctrl-x: delete branch · esc: close' \
     --preview="$self _preview {1}" --wrap-sign='  ' \
     --preview-window=right,55%,wrap,border-left \
     --bind="ctrl-r:execute($self _rename {1})+reload($self _list $root $cur)" \
-    --bind="ctrl-g:execute($self digest $(printf '%q' "$pane"))+abort" \
+    --bind="ctrl-d:execute($self digest $(printf '%q' "$pane"))+abort" \
     --bind="ctrl-x:execute-silent($self rm {1})+reload($self _list $root $cur)") || return 0
   cmd_jump "${out%%$'\t'*}"
 }
@@ -974,7 +974,7 @@ Any claude session inside tmux is branchable — plain claude, --continue,
                          Shows the size and token savings first, confirms,
                          then jumps you in. The pre-digest topic is archived
                          under the copy — closed, kept, revivable. Usually
-                         reached via ctrl-g in the tree navigator
+                         reached via ctrl-d in the tree navigator
   lemux init             print tmux keybindings (append to ~/.tmux.conf)
 
 Typical flow: run claude in tmux → chat → select text with the mouse and hit
