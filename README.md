@@ -17,32 +17,32 @@ way you already do.
 
 ---
 
-### Branch a tangent instead of derailing the thread
+### 1 · Ask the tangent — the main thread never notices
 
-<img src="assets/flow-trip.svg" width="820" alt="An answer mentions something worth chasing; you highlight it, prefix+B forks it into a side quest with the full parent context, and the main thread carries on untouched.">
+<img src="assets/feature-branch.svg" width="820" alt="Two sessions side by side. In the main session a highlighted line; an arrow labelled fork leads to the side quest, which contains every message of the main session copied in, ghosted, with your new question below them.">
 
-Highlight → `prefix + B` → ask. Opens as a fork with the **whole** parent
-conversation. Delete it after; nothing flows back.
+Highlight → `prefix + B` → ask. The fork starts knowing **everything** the
+parent knew. Delete it after; nothing flows back.
 
-### Get your context window back
-
-<img src="assets/feature-digest.svg" width="820" alt="Digest: before, 498,140 tokens of tool calls, file dumps, test output and images. After, 58,910 tokens holding every prompt and every reply. 8.5x less context, 11.2 MB down to 235 KB on disk.">
-
-`ctrl-d` rewrites the session as prose only — every prompt, every reply, no
-tool traffic.
-
-### See which agent needs you
+### 2 · Now you have several running — see which needs you
 
 <img src="assets/feature-supervise.svg" width="820" alt="The tree navigator listing a topic's sessions with live status: done, waiting on user, running.">
 
-`prefix + T`. Status comes from Claude Code's lifecycle hooks — lemux never
-closes a session that's working.
+`prefix + T`. Status comes from Claude Code's lifecycle hooks — real events,
+not guesswork. lemux never closes a session that's working.
 
-### Nothing is thrown away
+### 3 · The long one is bloated — take the context back
+
+<img src="assets/feature-digest.svg" width="820" alt="Digest: before, 498,140 tokens of tool calls, file dumps, test output and images. After, 58,910 tokens holding every prompt and every reply. 8.5x less context, 11.2 MB down to 235 KB on disk.">
+
+`ctrl-d` rewrites it as prose only — every prompt, every reply, no tool
+traffic. You keep working in the copy.
+
+### 4 · And the original is still there
 
 <img src="assets/feature-archives.svg" width="820" alt="The archives timeline: each digest keeps the tree it replaced, oldest to newest, ending in the live copy.">
 
-`tab` in the tree. Any generation reopens with its full tool-call history.
+`tab` in the tree. Every generation reopens with its full tool-call history.
 
 ---
 
