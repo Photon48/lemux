@@ -184,7 +184,7 @@ cmd_setup() { # the whole install, self-contained: bin copy, tmux keys, hooks.
     *) echo "lemux: note: $bin_dir is not on your PATH — add it to use 'lemux' directly" ;;
   esac
   echo "lemux: done — run claude inside tmux (any way) and branch away"
-  echo "lemux: keys: prefix+B branch · prefix+T tree · prefix+X delete · prefix+G digest"
+  echo "lemux: keys: prefix+B branch · prefix+T tree (ctrl-g digests) · prefix+X delete"
 }
 
 cmd__state() { # <state> — hook callback; session_id arrives on stdin as JSON
@@ -617,10 +617,11 @@ cmd_tree() { # <pane_id> — fzf navigator over this session's own side quests
   out=$(printf '%s\n' "$list" | fzf --ansi --delimiter='\t' --with-nth=2 --no-sort --layout=reverse \
     --bind="start:pos(${pos:-1})" \
     --prompt='lemux> ' \
-    --header=$'enter: jump · ctrl-r: rename\nctrl-x: delete branch · esc: close' \
+    --header=$'enter: jump · ctrl-r: rename · ctrl-g: digest topic\nctrl-x: delete branch · esc: close' \
     --preview="$self _preview {1}" --wrap-sign='  ' \
     --preview-window=right,55%,wrap,border-left \
     --bind="ctrl-r:execute($self _rename {1})+reload($self _list $root $cur)" \
+    --bind="ctrl-g:execute($self digest $(printf '%q' "$pane"))+abort" \
     --bind="ctrl-x:execute-silent($self rm {1})+reload($self _list $root $cur)") || return 0
   cmd_jump "${out%%$'\t'*}"
 }
@@ -674,8 +675,10 @@ cmd_rm() { # <topic-name | id> | --pane <pane_id> — delete a branch or untrack
     win=$(node_field "$n" window)
     window_alive "$win" && tmux kill-window -t "$win" 2>/dev/null || true
     rm -f "$LEMUX_DIR/state/$n" "$LEMUX_DIR/notify/$n"
-    # Root transcripts are never auto-deleted; branch transcripts are.
-    if ! { [[ "$n" == "$id" ]] && [[ -z "$root_parent" ]]; }; then
+    # Root and archived (pre-digest) transcripts are never auto-deleted;
+    # ordinary branch transcripts are.
+    if [[ "$(node_field "$n" archive)" != "true" ]] &&
+       ! { [[ "$n" == "$id" ]] && [[ -z "$root_parent" ]]; }; then
       dir=$(node_field "$n" dir)
       rm -f "$(session_file "$n" "$dir")"
     fi
@@ -771,6 +774,7 @@ cmd_digest() { # <pane_id> — popup: size up a compact copy of this pane's whol
   # digests, committed later by a rename, so nothing is computed twice.
   local o np new dir src plan="" pairs="" n=0 was=0 now=0 bw=0 bfloor=0 ba=0 a b
   for o in $(descendants "$root"); do
+    [[ "$(node_field "$o" archive)" == "true" ]] && continue   # a pre-digest archive — already covered
     dir=$(node_field "$o" dir); src=$(session_file "$o" "$dir")
     [[ -s "$src" ]] || continue
     # BFS hands us parents before children; pairs is the old→new id table
@@ -824,9 +828,18 @@ cmd_digest() { # <pane_id> — popup: size up a compact copy of this pane's whol
              | .window="" | .pane=""
              | if $isroot then .name+=" ⌁" | .created=$ts else . end)]'
   done <<<"$plan"
+  # Archive the originals: the whole pre-digest topic reparents under the new
+  # root as a closed branch — its windows close as you land (one-window
+  # discipline), its transcripts are never auto-deleted (rm spares archived
+  # nodes, like roots), and any of it revives from the tree if you need the
+  # full tool-call history back.
+  jq_update --argjson olds "$(descendants "$root" | jq -R . | jq -s .)" \
+    --arg root "$root" --arg nr "$newroot" '
+    map(if (.id as $i | $olds | index($i)) then .archive=true else . end
+        | if .id==$root then .parent=$nr | .name+=" (pre-digest)" else . end)'
   if [[ -n "${TMUX:-}" ]]; then
     cmd_jump "$newroot"
-    tmux display-message "lemux: this is the compact copy — ~$(ktok "$en") tokens of context, was ~$(ktok "$ew")"
+    tmux display-message "lemux: this is the compact copy — the pre-digest sessions are archived in its tree"
   else
     echo "lemux: digested $n session(s), $(hsize "$was") → $(hsize "$now") — resume with: claude --resume $newroot"
   fi
@@ -930,10 +943,8 @@ cmd_init() { # print tmux keybindings (absolute paths — PATH-proof)
 # prefix + B          branch on the text you just copied (select + cmd-C first)
 # prefix + T          open the branch tree navigator
 # prefix + X          delete the current pane's branch (+ subtree)
-# prefix + G          digest: compact copy of this topic (prompts + replies only)
 bind-key B run-shell "$self _popup 78% 45% ask '#{pane_id}'"
 bind-key T run-shell "$self _popup 85% 70% tree '#{pane_id}'"
-bind-key G run-shell "$self _popup 72% 60% digest '#{pane_id}'"
 bind-key X confirm-before -p "lemux: delete this branch and its subtree? (y/n)" "run-shell \"$self rm --pane '#{pane_id}'\""
 # <<< lemux <<<
 EOF
@@ -961,7 +972,9 @@ Any claude session inside tmux is branchable — plain claude, --continue,
                          replies as plain text (tool calls, results, thinking,
                          pasted images and meta records all stripped).
                          Shows the size and token savings first, confirms,
-                         then jumps you in; the originals stay untouched
+                         then jumps you in. The pre-digest topic is archived
+                         under the copy — closed, kept, revivable. Usually
+                         reached via ctrl-g in the tree navigator
   lemux init             print tmux keybindings (append to ~/.tmux.conf)
 
 Typical flow: run claude in tmux → chat → select text with the mouse and hit
