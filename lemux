@@ -710,8 +710,9 @@ digest_file() { # src dst new_sid — strip a transcript to the conversation its
   jq -cR 'fromjson? // empty' "$1" | jq -cs --arg sid "$3" '
     (map(select(.uuid != null)) | INDEX(.uuid)) as $by
     | (map(select(.type=="user" or .type=="assistant")) | last | .uuid) as $leaf
-    | [ $leaf | recurse(. as $u | $by[$u].parentUuid | select(. != null)) ]
-    | reverse | map($by[.] | select(. != null))
+    | if $leaf == null then []
+      else [ $leaf | recurse(. as $u | $by[$u].parentUuid | select(. != null)) ]
+      | reverse | map($by[.] | select(. != null)) end
     | [ .[]
         | select(.type=="user" or .type=="assistant")
         | if (.message.content|type)=="array"
@@ -725,19 +726,52 @@ digest_file() { # src dst new_sid — strip a transcript to the conversation its
   ' >"$2"
 }
 
-cmd_digest() { # <pane_id> — clone this pane's whole topic as a compact copy:
-  # same tree shape, new session ids, transcripts digested down to prompts and
-  # replies. Originals untouched; the copy lands as its own topic "<name> ⌁".
+ktok() { awk -v t="${1:-0}" 'BEGIN{if(t>=1000)printf "%dk",t/1000; else printf "%d",t}'; }
+
+usage_span() { # file — "last first" context totals (tokens) from the session's own
+  # usage records: every assistant turn logs what its API call actually loaded.
+  # last ≈ the session's context today; first ≈ the fixed floor (system prompt,
+  # tools, MCP, CLAUDE.md) that any session in this repo pays. Measured within
+  # 2% of a real resume — no estimating involved.
+  jq -cR 'fromjson? // empty' "$1" | jq -rs '
+    [ .[] | select(.type=="assistant") | .message.usage | select(. != null)
+      | (.input_tokens//0) + (.cache_read_input_tokens//0) + (.cache_creation_input_tokens//0) ]
+    | map(select(. > 0)) | "\(last // 0) \(first // 0)"'
+}
+
+est_tokens() { # file — token estimate for a digested transcript: prose chars/2.5
+  # (calibrated against a real resume of a digested session; technical prose
+  # runs denser than the folk 4-chars-per-token)
+  jq -cR 'fromjson? // empty' "$1" | jq -s '
+    ([ .[] | .message.content
+       | if type=="string" then . else ([.[]?|select(.type=="text")|.text]|join(" ")) end ]
+     | join(" ") | length) / 2.5 | floor'
+}
+
+cmd_digest() { # <pane_id> — popup: size up a compact copy of this pane's whole
+  # topic (same tree shape, new session ids, transcripts stripped to prompts
+  # and replies), confirm, then land in it. Originals untouched; the copy is
+  # its own topic "<name> ⌁". A non-tty stdin (scripts) skips the confirmation.
   init_state
-  local pane="${1:?usage: lemux digest <pane_id>}" cur root o np new dir src dst
-  local pairs="" n=0 was=0 now=0
+  local pane="${1:?usage: lemux digest <pane_id>}" cur root tmp
   cur=$(pane_session "$pane")
-  [[ -n "$cur" ]] || die "no claude session in this pane — is one running?"
+  [[ -n "$cur" ]] || popup_die "no claude session in this pane — is one running?"
   root=$(root_of "$cur")
-  [[ -n "$(node_field "$root" name)" ]] || die "nothing to digest — branch first (prefix+B) so the session is tracked"
+  [[ -n "$(node_field "$root" name)" ]] || popup_die "nothing to digest — branch first (prefix+B) so the session is tracked"
+  tmp=$(mktemp -d "$LEMUX_DIR/.digest.XXXXXX")
+  # expand now — $tmp is a local, gone by the time the EXIT trap fires
+  trap "rm -rf $(printf '%q' "$tmp")" EXIT
+
+  printf '\n  \033[1mdigest\033[0m — a compact copy of \033[1m%s\033[0m and every branch under it\n' \
+    "$(node_field "$root" name)"
+  printf '  \033[2myour prompts and claude'\''s replies survive; tool calls, tool results,\n'
+  printf '  images and abandoned retries are stripped. the originals are untouched.\033[0m\n\n'
+
+  # Scan: digest every transcript into tmp — the preview numbers ARE the real
+  # digests, committed later by a rename, so nothing is computed twice.
+  local o np new dir src plan="" pairs="" n=0 was=0 now=0 bw=0 bfloor=0 ba=0 a b
   for o in $(descendants "$root"); do
-    dir=$(node_field "$o" dir)
-    src=$(session_file "$o" "$dir")
+    dir=$(node_field "$o" dir); src=$(session_file "$o" "$dir")
     [[ -s "$src" ]] || continue
     # BFS hands us parents before children; pairs is the old→new id table
     # (bash 3.2: no associative arrays). A node whose parent yielded no
@@ -745,26 +779,57 @@ cmd_digest() { # <pane_id> — clone this pane's whole topic as a compact copy:
     np=$(_mapped "$(node_field "$o" parent)" $pairs)
     [[ -n "$np" || "$o" == "$root" ]] || continue
     new=$(new_uuid)
-    dst=$(session_file "$new" "$dir")
-    digest_file "$src" "$dst" "$new"
-    was=$((was + $(stat -f %z "$src"))); now=$((now + $(stat -f %z "$dst")))
+    printf '    \033[2m%-24.24s\033[0m ' "$(node_field "$o" name)"
+    digest_file "$src" "$tmp/$new" "$new"
+    [[ -s "$tmp/$new" ]] || { printf '\033[2mempty — skipped\033[0m\n'; continue; }
+    a=$(stat -f %z "$src"); b=$(stat -f %z "$tmp/$new")
+    was=$((was + a)); now=$((now + b))
+    # the token story is told for the session you pressed G in: its real
+    # context (from its own usage records) vs the fixed floor + kept prose
+    if [[ "$o" == "$cur" ]]; then
+      set -- $(usage_span "$src")
+      bw="$1"; bfloor="$2"; ba=$((bfloor + $(est_tokens "$tmp/$new")))
+    fi
+    printf '%8s → %s\n' "$(hsize "$a")" "$(hsize "$b")"
+    pairs+="$o $new "
+    plan+="$o"$'\t'"$new"$'\t'"${np:--}"$'\t'"$dir"$'\n'
+    n=$((n + 1))
+  done
+  ((n)) || popup_die "nothing to digest — no transcripts found for this topic"
+
+  printf '\n  %s session(s) · %s → %s on disk · full conversation kept\n' "$n" "$(hsize "$was")" "$(hsize "$now")"
+  ((bw > ba)) && printf '  this session'\''s context · \033[1m%s → ~%s tokens\033[0m (−%s%%)\n' \
+    "$(ktok "$bw")" "$(ktok "$ba")" "$(( (bw - ba) * 100 / bw ))"
+
+  if [[ -t 0 ]]; then
+    printf '\n  \033[1menter\033[0m: digest & jump in · \033[1mesc\033[0m: cancel '
+    local key
+    IFS= read -r -s -n1 key </dev/tty || return 0
+    [[ -z "$key" ]] || return 0
+  fi
+
+  # Commit: rename the digests into place, clone their nodes, land in the copy.
+  local old newroot=""
+  while IFS=$'\t' read -r old new np dir; do
+    [[ -n "$old" ]] || continue
+    [[ "$np" == "-" ]] && np=""
     # the digested root stands on its own — a sibling topic, not a branch of
     # the thing it copied (nesting it buried the whole copy one level deep)
-    [[ "$o" == "$root" ]] && np=""
-    jq_update --arg old "$o" --arg new "$new" --arg parent "$np" \
-      --argjson isroot "$([[ "$o" == "$root" ]] && echo true || echo false)" \
+    [[ "$old" == "$root" ]] && newroot="$new"
+    mv "$tmp/$new" "$(session_file "$new" "$dir")"
+    jq_update --arg old "$old" --arg new "$new" --arg parent "$np" \
+      --argjson isroot "$([[ "$old" == "$root" ]] && echo true || echo false)" \
       --argjson ts "$(date +%s)" \
       '. + [(.[] | select(.id==$old) | .id=$new | .parent=$parent
              | .window="" | .pane=""
              | if $isroot then .name+=" ⌁" | .created=$ts else . end)]'
-    pairs+="$o $new "
-    n=$((n + 1))
-  done
-  ((n)) || die "nothing to digest — no transcripts found for this topic"
-  local msg
-  msg="digested $n session(s), $(hsize "$was") → $(hsize "$now") — open the ⌁ copy from the tree (prefix+T)"
-  echo "lemux: $msg"
-  [[ -n "${TMUX:-}" ]] && tmux display-message "lemux: $msg" || true
+  done <<<"$plan"
+  if [[ -n "${TMUX:-}" ]]; then
+    cmd_jump "$newroot"
+    tmux display-message "lemux: this is the compact copy — ~$(ktok "$en") tokens of context, was ~$(ktok "$ew")"
+  else
+    echo "lemux: digested $n session(s), $(hsize "$was") → $(hsize "$now") — resume with: claude --resume $newroot"
+  fi
 }
 
 pwrap() { # firstprefix contprefix viswidth text — fold to the preview width with a hanging indent
@@ -868,7 +933,7 @@ cmd_init() { # print tmux keybindings (absolute paths — PATH-proof)
 # prefix + G          digest: compact copy of this topic (prompts + replies only)
 bind-key B run-shell "$self _popup 78% 45% ask '#{pane_id}'"
 bind-key T run-shell "$self _popup 85% 70% tree '#{pane_id}'"
-bind-key G run-shell -b "$self digest '#{pane_id}' >/dev/null"
+bind-key G run-shell "$self _popup 72% 60% digest '#{pane_id}'"
 bind-key X confirm-before -p "lemux: delete this branch and its subtree? (y/n)" "run-shell \"$self rm --pane '#{pane_id}'\""
 # <<< lemux <<<
 EOF
@@ -894,8 +959,9 @@ Any claude session inside tmux is branchable — plain claude, --continue,
   lemux digest <pane>    compact copy of the pane's whole topic — same tree,
                          new sessions holding only your prompts and claude's
                          replies as plain text (tool calls, results, thinking,
-                         pasted images and meta records all stripped);
-                         the originals stay untouched
+                         pasted images and meta records all stripped).
+                         Shows the size and token savings first, confirms,
+                         then jumps you in; the originals stay untouched
   lemux init             print tmux keybindings (append to ~/.tmux.conf)
 
 Typical flow: run claude in tmux → chat → select text with the mouse and hit

@@ -101,13 +101,16 @@ session stays "waiting" — spared — until you next interact with it.
 | select text, copy it, `prefix + B` | **Branch**: fork this session into a new window, seeded with what you copied |
 | `prefix + T` | **Tree**: this session's side quests — type to filter, enter to jump, `ctrl-r` to rename, `ctrl-x` to delete |
 | `prefix + X` | **Delete** the current pane's branch and its whole subtree |
-| `prefix + G` | **Digest**: clone the whole topic into compact copies — prompts and replies only |
+| `prefix + G` | **Digest**: popup sizes up a compact copy of the whole topic — per-branch shrinkage and the token savings — then enter confirms and drops you into the copy |
 
 Digest walks the topic — the root and every branch under it — and writes a
 parallel tree of new sessions holding only the conversation: your prompts and
 Claude's prose. Tool calls, their results, attachments and file snapshots are
-dropped. The originals are untouched, and the digested tree lands in the
-navigator as its own `<topic> ⌁`, ready to resume from `prefix + T`.
+dropped. The popup first shows what will happen — each branch's shrinkage and
+your session's real context (read from Claude's own usage records) against the
+estimated context after — and commits only on enter. The originals are
+untouched; the digested tree lands as its own `<topic> ⌁` and you're jumped
+straight into it.
 
 A transcript is a *tree*, not a list — retries, edited messages and `/clear`
 leave abandoned branches sitting in the file. Digest walks `parentUuid` back
