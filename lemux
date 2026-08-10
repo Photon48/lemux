@@ -559,8 +559,8 @@ _walk() { # id prefix position(root|mid|last)
   if [[ "$(node_field "$id" archive)" == "true" ]] &&
      [[ "$(node_field "$(node_field "$id" parent)" archive)" != "true" ]] &&
      ! descendants "$id" | grep -qx "${CUR:-}"; then
-    printf '%s\t%s%s\033[2m○ %s ⟨%s archived⟩\033[0m\n' "$id" "$prefix" "$glyph" \
-      "$(node_field "$id" name)" "$(descendants "$id" | wc -l | tr -d ' ')"
+    printf '%s\t%s%s\033[2m○ %s ⟨archived⟩\033[0m\n' "$id" "$prefix" "$glyph" \
+      "$(node_field "$id" name)"
     return 0
   fi
   local status="○" alive=0
@@ -846,7 +846,7 @@ cmd_digest() { # <pane_id> — popup: size up a compact copy of this pane's whol
   jq_update --argjson olds "$(descendants "$root" | jq -R . | jq -s .)" \
     --arg root "$root" --arg nr "$newroot" '
     map(if (.id as $i | $olds | index($i)) then .archive=true else . end
-        | if .id==$root then .parent=$nr | .name+=" (pre-digest)" else . end)'
+        | if .id==$root then .parent=$nr else . end)'
   if [[ -n "${TMUX:-}" ]]; then
     cmd_jump "$newroot"
     tmux display-message "lemux: this is the compact copy — the pre-digest sessions are archived in its tree"

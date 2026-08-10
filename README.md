@@ -109,7 +109,7 @@ file snapshots are dropped. The popup first shows what will happen — each
 branch's shrinkage and your session's real context (read from Claude's own
 usage records) against the estimated context after — and commits only on
 enter. You land in the copy, `<topic> ⌁`, and the pre-digest topic is archived
-beneath it as a closed branch named `<topic> (pre-digest)`: its windows close,
+beneath it, folded into a single dim `⟨archived⟩` line: its windows close,
 its transcripts are kept forever (`rm` spares archived nodes the way it spares
 roots), and any of it revives from the tree when you need the full tool-call
 history back.
