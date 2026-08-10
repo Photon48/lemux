@@ -34,6 +34,10 @@ jq_update() {
 
 node_field() { jq -r --arg id "$1" ".[] | select(.id==\$id) | .$2 // \"\"" "$TREE"; }
 
+# The archived generation digested into this root, if any — timelines are
+# chains of these, one link per digest.
+prev_gen() { jq -r --arg id "$1" '.[] | select(.successor==$id) | .id' "$TREE" | head -1; }
+
 # The session a side quest ultimately hangs off — the navigator's scope.
 root_of() {
   local id="$1" p
@@ -170,6 +174,13 @@ cmd_setup() { # the whole install, self-contained: bin copy, tmux keys, hooks.
     echo "lemux: installed → $bin"
   fi
   SELF="$bin"   # keybindings and hooks name the installed copy, not this file
+  # migrate trees from the version that hung archives under their successor:
+  # detach them into their own timeline links (idempotent)
+  init_state
+  jq_update --argjson ts "$(date +%s)" '
+    (map(select(.archive==true) | .id)) as $arch
+    | map(if .archive==true and .parent!="" and ((.parent | IN($arch[])) | not)
+          then .successor=.parent | .parent="" | .digested=(.digested // $ts) else . end)'
   touch "$conf"
   sed -i.lemux-bak '/^# >>> lemux >>>/,/^# <<< lemux <<</d' "$conf"
   rm -f "$conf.lemux-bak"
@@ -553,16 +564,6 @@ _walk() { # id prefix position(root|mid|last)
     mid)  glyph="├─ "; child_prefix="${prefix}│  " ;;
     last) glyph="└─ "; child_prefix="${prefix}   " ;;
   esac
-  # an archived (pre-digest) subtree folds behind one dim line — expanded
-  # only while the session you're in lives inside it; jump still works on
-  # the folded line, and unfolding is just entering it
-  if [[ "$(node_field "$id" archive)" == "true" ]] &&
-     [[ "$(node_field "$(node_field "$id" parent)" archive)" != "true" ]] &&
-     ! descendants "$id" | grep -qx "${CUR:-}"; then
-    printf '%s\t%s%s\033[2m○ %s ⟨archived⟩\033[0m\n' "$id" "$prefix" "$glyph" \
-      "$(node_field "$id" name)"
-    return 0
-  fi
   local status="○" alive=0
   window_alive "$(node_field "$id" window)" && { status="●"; alive=1; }
   # the outcome badge: a turn that ended while you were elsewhere (done /
@@ -624,15 +625,59 @@ cmd_tree() { # <pane_id> — fzf navigator over this session's own side quests
   # open with the cursor on the session you came from, not the root
   list=$(cmd__list "$root" "$cur")
   pos=$(printf '%s\n' "$list" | awk -F'\t' -v id="$cur" '$1==id{print NR; exit}')
+  # the archives tab only exists once this topic has been digested at least once
+  local hdr=$'enter: jump · ctrl-r: rename · ctrl-d: digest topic\nctrl-x: delete branch · esc: close' tabbind=""
+  if [[ -n "$(prev_gen "$root")" ]]; then
+    hdr=$'enter: jump · ctrl-r: rename · ctrl-d: digest topic\ntab: archives · ctrl-x: delete branch · esc: close'
+    tabbind="tab:become($self _arch $(printf '%q' "$root") $(printf '%q' "$pane"))"
+  fi
   out=$(printf '%s\n' "$list" | fzf --ansi --delimiter='\t' --with-nth=2 --no-sort --layout=reverse \
     --bind="start:pos(${pos:-1})" \
+    ${tabbind:+--bind="$tabbind"} \
     --prompt='lemux> ' \
-    --header=$'enter: jump · ctrl-r: rename · ctrl-d: digest topic\nctrl-x: delete branch · esc: close' \
+    --header="$hdr" \
     --preview="$self _preview {1}" --wrap-sign='  ' \
     --preview-window=right,55%,wrap,border-left \
     --bind="ctrl-r:execute($self _rename {1})+reload($self _list $root $cur)" \
     --bind="ctrl-d:execute($self digest $(printf '%q' "$pane"))+abort" \
     --bind="ctrl-x:execute-silent($self rm {1})+reload($self _list $root $cur)") || return 0
+  cmd_jump "${out%%$'\t'*}"
+}
+
+cmd__arch() { # <root> <pane> — the archives tab: one line per digest generation,
+  # newest first. Each is a detached pre-digest tree, browsable and revivable.
+  init_state
+  local root="${1:?}" pane="${2:?}" self g list="" n
+  self=$(printf '%q' "$SELF")
+  g=$(prev_gen "$root")
+  while [[ -n "$g" ]]; do
+    n=$(descendants "$g" | wc -l | tr -d ' ')
+    list+=$(printf '%s\t\033[2m⌁\033[0m %s  \033[2mdigested %s · %s session(s)\033[0m' \
+      "$g" "$(node_field "$g" name)" "$(ago "$(node_field "$g" digested)")" "$n")$'\n'
+    g=$(prev_gen "$g")
+  done
+  [[ -n "$list" ]] || popup_die "no archives yet — digest this topic with ctrl-d first"
+  local out
+  out=$(printf '%s' "$list" | fzf --ansi --delimiter='\t' --with-nth=2 --no-sort --layout=reverse \
+    --prompt='archives> ' \
+    --header=$'the pre-digest trees, newest first — everything digest left behind\nenter: browse it · tab: back to the live tree · esc: close' \
+    --preview="$self _preview {1}" --wrap-sign='  ' \
+    --preview-window=right,55%,wrap,border-left \
+    --bind="tab:become($self tree $(printf '%q' "$pane"))") || return 0
+  cmd__archtree "${out%%$'\t'*}" "$root" "$pane"
+}
+
+cmd__archtree() { # <genroot> <root> <pane> — one archived generation, in full:
+  # every session in it selectable and revivable, exactly like the live tree.
+  init_state
+  local gen="${1:?}" root="${2:?}" pane="${3:?}" self out
+  self=$(printf '%q' "$SELF")
+  out=$(cmd__list "$gen" | fzf --ansi --delimiter='\t' --with-nth=2 --no-sort --layout=reverse \
+    --prompt='archived> ' \
+    --header=$'an archived tree — enter revives any session in it, with its full tool-call history\ntab: back to archives · esc: close' \
+    --preview="$self _preview {1}" --wrap-sign='  ' \
+    --preview-window=right,55%,wrap,border-left \
+    --bind="tab:become($self _arch $(printf '%q' "$root") $(printf '%q' "$pane"))") || return 0
   cmd_jump "${out%%$'\t'*}"
 }
 
@@ -677,9 +722,16 @@ cmd_rm() { # <topic-name | id> | --pane <pane_id> — delete a branch or untrack
     esac
   fi
 
-  local ids n root_parent
+  local ids n root_parent g
   ids=($(descendants "$id"))
   root_parent=$(node_field "$id" parent)
+  # untracking a topic takes its whole timeline with it — every archived
+  # generation behind it, whose transcripts the archive guard below still
+  # spares. Otherwise the archives outlive the topic they belong to.
+  if [[ -z "$root_parent" ]]; then
+    g=$(prev_gen "$id")
+    while [[ -n "$g" ]]; do ids+=($(descendants "$g")); g=$(prev_gen "$g"); done
+  fi
   for n in "${ids[@]}"; do
     local win dir
     win=$(node_field "$n" window)
@@ -771,6 +823,8 @@ cmd_digest() { # <pane_id> — popup: size up a compact copy of this pane's whol
   [[ -n "$cur" ]] || popup_die "no claude session in this pane — is one running?"
   root=$(root_of "$cur")
   [[ -n "$(node_field "$root" name)" ]] || popup_die "nothing to digest — branch first (prefix+B) so the session is tracked"
+  [[ "$(node_field "$root" archive)" == "true" ]] &&
+    popup_die "this is an archived copy — digest from the live topic instead"
   tmp=$(mktemp -d "$LEMUX_DIR/.digest.XXXXXX")
   # expand now — $tmp is a local, gone by the time the EXIT trap fires
   trap "rm -rf $(printf '%q' "$tmp")" EXIT
@@ -784,7 +838,6 @@ cmd_digest() { # <pane_id> — popup: size up a compact copy of this pane's whol
   # digests, committed later by a rename, so nothing is computed twice.
   local o np new dir src plan="" pairs="" n=0 was=0 now=0 bw=0 bfloor=0 ba=0 a b
   for o in $(descendants "$root"); do
-    [[ "$(node_field "$o" archive)" == "true" ]] && continue   # a pre-digest archive — already covered
     dir=$(node_field "$o" dir); src=$(session_file "$o" "$dir")
     [[ -s "$src" ]] || continue
     # BFS hands us parents before children; pairs is the old→new id table
@@ -838,18 +891,19 @@ cmd_digest() { # <pane_id> — popup: size up a compact copy of this pane's whol
              | .window="" | .pane=""
              | if $isroot then .name+=" ⌁" | .created=$ts else . end)]'
   done <<<"$plan"
-  # Archive the originals: the whole pre-digest topic reparents under the new
-  # root as a closed branch — its windows close as you land (one-window
-  # discipline), its transcripts are never auto-deleted (rm spares archived
-  # nodes, like roots), and any of it revives from the tree if you need the
-  # full tool-call history back.
+  # Archive the originals: the pre-digest topic stays a detached root — out of
+  # the working tree entirely — linked to its successor so repeated digests
+  # form a timeline you can walk back. Its transcripts are never auto-deleted
+  # (rm spares archived nodes, like roots), and every session in it revives
+  # from the archives view when the full tool-call history is wanted.
   jq_update --argjson olds "$(descendants "$root" | jq -R . | jq -s .)" \
-    --arg root "$root" --arg nr "$newroot" '
+    --arg root "$root" --arg nr "$newroot" --argjson ts "$(date +%s)" '
     map(if (.id as $i | $olds | index($i)) then .archive=true else . end
-        | if .id==$root then .parent=$nr else . end)'
+        | if .id==$root then .successor=$nr | .digested=$ts else . end)'
+  prune_path "$root" ""   # close the whole pre-digest topic behind you
   if [[ -n "${TMUX:-}" ]]; then
     cmd_jump "$newroot"
-    tmux display-message "lemux: this is the compact copy — the pre-digest sessions are archived in its tree"
+    tmux display-message "lemux: this is the compact copy — the originals are archived under tab in the tree (prefix+T)"
   else
     echo "lemux: digested $n session(s), $(hsize "$was") → $(hsize "$now") — resume with: claude --resume $newroot"
   fi
@@ -889,12 +943,17 @@ cmd__preview() { # id — the branch's diverge story + its steering inputs, for 
   dir=$(node_field "$id" dir)
   parent=$(node_field "$id" parent)
   file=$(session_file "$id" "$dir")
+  local stamp
+  stamp=$(node_field "$id" digested)
   if window_alive "$(node_field "$id" window)"; then
     case "$(state_of "$id")" in
       busy)    state=$'\033[32m●\033[0m busy' ;;
       waiting) state=$'\033[33m●\033[0m waiting' ;;
       *)       state='● idle' ;;
     esac
+  elif [[ "$(node_field "$id" archive)" == "true" ]]; then
+    state=$'\033[2m⌁ archived\033[0m'
+    [[ -z "$stamp" ]] || state+=$'\033[2m · digested '"$(ago "$stamp")"$'\033[0m'
   else
     state=$'\033[2m○ closed\033[0m'
   fi
@@ -982,8 +1041,9 @@ Any claude session inside tmux is branchable — plain claude, --continue,
                          replies as plain text (tool calls, results, thinking,
                          pasted images and meta records all stripped).
                          Shows the size and token savings first, confirms,
-                         then jumps you in. The pre-digest topic is archived
-                         under the copy — closed, kept, revivable. Usually
+                         then jumps you in. The pre-digest tree is archived
+                         out of the way — reachable, with every session in it
+                         revivable, under tab in the tree navigator. Usually
                          reached via ctrl-d in the tree navigator
   lemux init             print tmux keybindings (append to ~/.tmux.conf)
 
@@ -1011,6 +1071,8 @@ case "${1:-help}" in
   _type)    shift; cmd__type "$@" ;;
   _name)    shift; cmd__name "$@" ;;
   _rename)  shift; cmd__rename "$@" ;;
+  _arch)    shift; cmd__arch "$@" ;;
+  _archtree) shift; cmd__archtree "$@" ;;
   _state)   shift; cmd__state "$@" ;;
   _preview) shift; cmd__preview "$@" ;;
   _run)     shift; cmd__run "$@" ;;

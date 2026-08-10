@@ -99,7 +99,7 @@ session stays "waiting" — spared — until you next interact with it.
 | Keys | Action |
 |------|--------|
 | select text, copy it, `prefix + B` | **Branch**: fork this session into a new window, seeded with what you copied |
-| `prefix + T` | **Tree**: this session's side quests — type to filter, enter to jump, `ctrl-r` to rename, `ctrl-x` to delete, `ctrl-d` to digest the topic |
+| `prefix + T` | **Tree**: this session's side quests — type to filter, enter to jump, `ctrl-r` to rename, `ctrl-x` to delete, `ctrl-d` to digest the topic, `tab` for the archives |
 | `prefix + X` | **Delete** the current pane's branch and its whole subtree |
 
 Digest (`ctrl-d` in the tree) walks the topic — the root and every branch under
@@ -108,11 +108,26 @@ your prompts and Claude's prose. Tool calls, their results, attachments and
 file snapshots are dropped. The popup first shows what will happen — each
 branch's shrinkage and your session's real context (read from Claude's own
 usage records) against the estimated context after — and commits only on
-enter. You land in the copy, `<topic> ⌁`, and the pre-digest topic is archived
-beneath it, folded into a single dim `⟨archived⟩` line: its windows close,
-its transcripts are kept forever (`rm` spares archived nodes the way it spares
-roots), and any of it revives from the tree when you need the full tool-call
-history back.
+enter. You land in the copy, `<topic> ⌁`, and the pre-digest tree is archived —
+detached completely, so the working tree stays clean.
+
+Archives live on their own **timeline**, one entry per digest, reached with
+`tab` in the tree navigator (the tab appears once a topic has been digested):
+
+```
+  archives>
+  the pre-digest trees, newest first — everything digest left behind
+  enter: browse it · tab: back to the live tree · esc: close
+
+  ⌁ NixieWatchV2   digested 2h ago · 9 session(s)
+  ⌁ NixieWatchV2   digested 3d ago · 6 session(s)
+```
+
+Enter opens that generation's full tree, where enter on *any* session revives
+it with its complete tool-call history. Digest again and the new copy simply
+becomes the newest link — the chain keeps as many generations as you make.
+Archived transcripts are never auto-deleted (`rm` spares them the way it spares
+roots), and untracking a topic takes its whole timeline with it.
 
 A transcript is a *tree*, not a list — retries, edited messages and `/clear`
 leave abandoned branches sitting in the file. Digest walks `parentUuid` back
