@@ -113,16 +113,26 @@ A transcript is a *tree*, not a list — retries, edited messages and `/clear`
 leave abandoned branches sitting in the file. Digest walks `parentUuid` back
 from the newest leaf and keeps only that chain, so the copy is the conversation
 you actually had. On a real session that dropped 33% of the records as dead
-ends. Byte savings vary wildly with what a session did: a tool-heavy one went
-7.9 MB → 52 KB, an image-heavy one only 11.2 MB → 2.4 MB, since pasted images
-are real conversation and stay.
+ends.
 
-**What it will not do is shrink `/context` much.** Claude Code already strips
-old tool results from the live context at runtime, so the bulk of what digest
-removes from the *file* was not in your context to begin with. Digest is for
-getting a clean, portable, permanently smaller transcript — one whose whole
-history is prose you can resume, re-read and keep — not a way to buy back
-context window.
+The point is context. Measured on a real 11.2 MB session, resuming each and
+reading the API's own token usage:
+
+| | tokens loaded |
+|---|---|
+| the original session | 498,140 |
+| its digest | 75,317 |
+| its digest, `--no-images` | 58,910 |
+| an empty session in the same repo (system prompt, tools, MCP, CLAUDE.md) | 24,003 |
+
+So the conversation everyone actually cares about — every prompt, every reply,
+the whole history — is about 35k tokens. The other 460k was tool traffic. A
+digested session resumes with the full story and roughly a sixth of the window
+spent.
+
+Pasted images survive by default, since they are things you said; they cost
+16k tokens across that session's seven screenshots and dominate the file size
+(2.4 MB vs 235 KB without them). `lemux digest --no-images <pane>` drops them.
 
 The flow: while reading an assistant response, select the sentence you want to
 dig into with the mouse and copy it (`cmd-C` on macOS), then hit `prefix + B`.

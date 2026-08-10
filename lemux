@@ -697,7 +697,7 @@ _mapped() { # key k1 v1 k2 v2 … — the value paired with key, if any
   while (($#)); do [[ "$1" == "$k" ]] && { printf '%s' "$2"; return; }; shift 2; done
 }
 
-digest_file() { # src dst new_sid — strip a transcript to the conversation itself.
+digest_file() { # src dst new_sid [drop_images] — strip a transcript to the conversation itself.
   # A transcript is a TREE, not a list: retries, message edits and /clear leave
   # abandoned branches behind in the file. Only the newest leaf's ancestor chain
   # was ever really the conversation, so we walk parentUuid back from it and
@@ -706,7 +706,7 @@ digest_file() { # src dst new_sid — strip a transcript to the conversation its
   # calls, tool results and meta records (attachments, snapshots, …) go, and
   # parentUuid is re-chained across the survivors so --resume still walks one
   # unbroken thread. fromjson? shrugs off a half-written last line mid-turn.
-  jq -cR 'fromjson? // empty' "$1" | jq -cs --arg sid "$3" '
+  jq -cR 'fromjson? // empty' "$1" | jq -cs --arg sid "$3" --argjson noimg "${4:-false}" '
     (map(select(.uuid != null)) | INDEX(.uuid)) as $by
     | (map(select(.type=="user" or .type=="assistant")) | last | .uuid) as $leaf
     | [ $leaf | recurse(. as $u | $by[$u].parentUuid | select(. != null)) ]
@@ -714,7 +714,9 @@ digest_file() { # src dst new_sid — strip a transcript to the conversation its
     | [ .[]
         | select(.type=="user" or .type=="assistant")
         | if .type=="user" and (.message.content|type)=="array"
-            then (.message.content |= map(select(.type? != "tool_result"))) | del(.toolUseResult)
+            then (.message.content |= map(select(
+                   .type? != "tool_result" and (.type? != "image" or ($noimg|not)))))
+                 | del(.toolUseResult)
           elif .type=="assistant" and (.message.content|type)=="array"
             then .message.content |= map(select(.type? == "text"))
           else . end
@@ -726,12 +728,20 @@ digest_file() { # src dst new_sid — strip a transcript to the conversation its
   ' >"$2"
 }
 
-cmd_digest() { # <pane_id> — clone this pane's whole topic as a compact copy:
-  # same tree shape, new session ids, transcripts digested down to prompts and
-  # replies. Originals untouched; the copy lands as its own topic "<name> ⌁".
+cmd_digest() { # [--no-images] <pane_id> — clone this pane's whole topic as a compact
+  # copy: same tree shape, new session ids, transcripts digested down to prompts
+  # and replies. Originals untouched; the copy lands as its own topic "<name> ⌁".
   init_state
-  local pane="${1:?usage: lemux digest <pane_id>}" cur root o np new dir src dst
+  local pane="" cur root o np new dir src dst noimg=false
   local pairs="" n=0 was=0 now=0
+  while (($#)); do
+    case "$1" in
+      --no-images) noimg=true ;;
+      *)           pane="$1" ;;
+    esac
+    shift
+  done
+  [[ -n "$pane" ]] || die "usage: lemux digest [--no-images] <pane_id>"
   cur=$(pane_session "$pane")
   [[ -n "$cur" ]] || die "no claude session in this pane — is one running?"
   root=$(root_of "$cur")
@@ -747,7 +757,7 @@ cmd_digest() { # <pane_id> — clone this pane's whole topic as a compact copy:
     [[ -n "$np" || "$o" == "$root" ]] || continue
     new=$(new_uuid)
     dst=$(session_file "$new" "$dir")
-    digest_file "$src" "$dst" "$new"
+    digest_file "$src" "$dst" "$new" "$noimg"
     was=$((was + $(stat -f %z "$src"))); now=$((now + $(stat -f %z "$dst")))
     # the digested root stands on its own — a sibling topic, not a branch of
     # the thing it copied (nesting it buried the whole copy one level deep)
@@ -895,7 +905,8 @@ Any claude session inside tmux is branchable — plain claude, --continue,
   lemux digest <pane>    compact copy of the pane's whole topic — same tree,
                          new sessions holding only your prompts and claude's
                          replies (tool calls, results and meta records
-                         stripped); the originals stay untouched
+                         stripped); the originals stay untouched.
+                         --no-images drops pasted images too
   lemux init             print tmux keybindings (append to ~/.tmux.conf)
 
 Typical flow: run claude in tmux → chat → select text with the mouse and hit
