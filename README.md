@@ -101,7 +101,7 @@ session stays "waiting" — spared — until you next interact with it.
 | select text, copy it, `prefix + B` | **Branch**: fork this session into a new window, seeded with what you copied |
 | `prefix + T` | **Tree**: this session's side quests — type to filter, enter to jump, `ctrl-r` to rename, `ctrl-x` to delete |
 | `prefix + X` | **Delete** the current pane's branch and its whole subtree |
-| `prefix + D` | **Digest**: clone the whole topic into compact copies — prompts and replies only |
+| `prefix + G` | **Digest**: clone the whole topic into compact copies — prompts and replies only |
 
 Digest is the answer to a context window that filled up with tool calls. It
 walks the topic — the root and every branch under it — and writes a parallel

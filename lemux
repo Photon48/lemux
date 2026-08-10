@@ -184,7 +184,7 @@ cmd_setup() { # the whole install, self-contained: bin copy, tmux keys, hooks.
     *) echo "lemux: note: $bin_dir is not on your PATH — add it to use 'lemux' directly" ;;
   esac
   echo "lemux: done — run claude inside tmux (any way) and branch away"
-  echo "lemux: keys: prefix+B branch · prefix+T tree · prefix+X delete · prefix+D digest"
+  echo "lemux: keys: prefix+B branch · prefix+T tree · prefix+X delete · prefix+G digest"
 }
 
 cmd__state() { # <state> — hook callback; session_id arrives on stdin as JSON
@@ -857,10 +857,10 @@ cmd_init() { # print tmux keybindings (absolute paths — PATH-proof)
 # prefix + B          branch on the text you just copied (select + cmd-C first)
 # prefix + T          open the branch tree navigator
 # prefix + X          delete the current pane's branch (+ subtree)
-# prefix + D          digest: compact copy of this topic (prompts + replies only)
+# prefix + G          digest: compact copy of this topic (prompts + replies only)
 bind-key B run-shell "$self _popup 78% 45% ask '#{pane_id}'"
 bind-key T run-shell "$self _popup 85% 70% tree '#{pane_id}'"
-bind-key D run-shell -b "$self digest '#{pane_id}' >/dev/null"
+bind-key G run-shell -b "$self digest '#{pane_id}' >/dev/null"
 bind-key X confirm-before -p "lemux: delete this branch and its subtree? (y/n)" "run-shell \"$self rm --pane '#{pane_id}'\""
 # <<< lemux <<<
 EOF
