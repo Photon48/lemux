@@ -1,7 +1,7 @@
 # lemux
 
-**A session manager for coding agents.** Branch, supervise, and un-bloat your
-Claude Code sessions — from tmux.
+**A session manager for coding agents.** Side quests, supervision, digest and
+archives — for your Claude Code sessions, from tmux.
 
 <p align="center">
   <img src="assets/demo.gif" width="820"
@@ -17,32 +17,35 @@ way you already do.
 
 ---
 
-### 1 · Ask the tangent — the main thread never notices
+### 1 · Side quests
 
 <img src="assets/feature-branch.svg" width="820" alt="Two sessions side by side. In the main session a highlighted line; an arrow labelled fork leads to the side quest, which contains every message of the main session copied in, ghosted, with your new question below them.">
 
-Highlight → `prefix + B` → ask. The fork starts knowing **everything** the
-parent knew. Delete it after; nothing flows back.
+Works on any claude session already running in tmux — nothing to launch
+differently. Side quests nest, so you can branch a side quest, and each one
+gets a name and a one-line brief written for it as it opens.
 
-### 2 · Now you have several running — see which needs you
+### 2 · Supervision
 
 <img src="assets/feature-supervise.svg" width="820" alt="The tree navigator listing a topic's sessions with live status: done, waiting on user, running.">
 
-`prefix + T`. Status comes from Claude Code's lifecycle hooks — real events,
-not guesswork. lemux never closes a session that's working.
+Flags outlive their window and clear the moment you arrive, so a session that
+finished an hour ago while you were elsewhere is still holding its hand up.
 
-### 3 · The long one is bloated — take the context back
+### 3 · Digest
 
 <img src="assets/feature-digest.svg" width="820" alt="Digest: before, 498,140 tokens of tool calls, file dumps, test output and images. After, 58,910 tokens holding every prompt and every reply. 8.5x less context, 11.2 MB down to 235 KB on disk.">
 
-`ctrl-d` rewrites it as prose only — every prompt, every reply, no tool
-traffic. You keep working in the copy.
+Your numbers appear before anything is written, read from the API's own usage
+records. Nothing happens until you press enter, and the whole tree is rewritten
+at once — the root and every side quest under it.
 
-### 4 · And the original is still there
+### 4 · Archives
 
 <img src="assets/feature-archives.svg" width="820" alt="The archives timeline: each digest keeps the tree it replaced, oldest to newest, ending in the live copy.">
 
-`tab` in the tree. Every generation reopens with its full tool-call history.
+`rm` will not delete an archived transcript, the way it won't delete a root.
+Digest as often as you like; the chain just gets longer.
 
 ---
 
