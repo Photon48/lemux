@@ -1,12 +1,11 @@
 # lemux
 
-**A session manager for coding agents.** Side quests, supervision, digest and
-archives — for your Claude Code sessions, from tmux.
+**Run coding agents on your workflow — not on their chat log.**
 
-<p align="center">
-  <img src="assets/demo.gif" width="820"
-       alt="Highlighting a line in an answer, hitting prefix+B, and the side quest opening in its own window with the full parent conversation behind it.">
-</p>
+Main holds the plan. Side quests hold everything else. Digest keeps the topic
+alive past the context window.
+
+<img src="assets/feature-shape.svg" width="820" alt="A trunk labelled main runs left to right. A loop branches off, reaches a point, and returns dashed to the trunk — you return, the session doesn't. A lane branches off downward, runs long, and ends in an arrow into a box labelled your repo. Nothing merges back into the chat.">
 
 ```sh
 curl -fsSL https://raw.githubusercontent.com/Photon48/lemux/main/install.sh | bash
@@ -17,43 +16,69 @@ way you already do.
 
 ---
 
-### 1 · Side quests
+## A day in a topic
 
-<img src="assets/feature-branch.svg" width="820" alt="Two sessions side by side. In the main session a highlighted line; an arrow labelled fork leads to the side quest, which contains every message of the main session copied in, ghosted, with your new question below them.">
+You're building payments. That's the **topic** — it lives for weeks. The
+session you plan in is **main**.
 
-Works on any claude session already running in tmux — nothing to launch
-differently. Side quests nest, so you can branch a side quest, and each one
-gets a name and a one-line brief written for it as it opens.
+### 09:00 · the loop
 
-### 2 · Supervision
+The agent mentions idempotency keys. You half-know what it means, and you want
+to know properly — but asking here spends the plan's context on a detour.
+
+Highlight the line, `prefix + B`, ask. It opens as a fork that already knows
+the whole feature, so there's nothing to re-explain. Ten minutes later you get
+it. `prefix + X`.
+
+**Main is byte-for-byte where you left it.** You aren't.
+
+### 11:00 · the lane
+
+Next task: rename `UserAccount` to `Account` across 200 files. Straightforward,
+long, and it would bury your plan under tool calls.
+
+So it doesn't go in main. Branch it — it inherits the naming discussion, so no
+briefing — set it running, and go back to designing webhooks.
 
 <img src="assets/feature-supervise.svg" width="820" alt="The tree navigator listing a topic's sessions with live status: done, waiting on user, running.">
 
-Flags outlive their window and clear the moment you arrive, so a session that
-finished an hour ago while you were elsewhere is still holding its hand up.
+`prefix + T` is the board. Green means done, red means it stopped and needs
+you, dim means still going — and the flags survive the window closing, so
+something that finished an hour ago is still holding its hand up when you
+look. You route your attention; you don't go fishing for it.
 
-### 3 · Digest
+The rename finishes. You skim it, tests pass, **and the diff is already in
+git** — which is the whole reason a side quest can just be deleted. The repo
+is the merge. The session was scaffolding.
 
-<img src="assets/feature-digest.svg" width="820" alt="Digest: before, 498,140 tokens of tool calls, file dumps, test output and images. After, 58,910 tokens holding every prompt and every reply. 8.5x less context, 11.2 MB down to 235 KB on disk.">
+### Friday · the ritual
 
-Your numbers appear before anything is written, read from the API's own usage
-records. Nothing happens until you press enter, and the whole tree is rewritten
-at once — the root and every side quest under it.
+Two weeks in, main is a hundred good decisions buried in 440k tokens of file
+dumps and test output. It still resumes, but barely.
 
-### 4 · Archives
+`ctrl-d`.
 
-<img src="assets/feature-archives.svg" width="820" alt="The archives timeline: each digest keeps the tree it replaced, oldest to newest, ending in the live copy.">
+<img src="assets/feature-timeline.svg" width="820" alt="A topic across three weeks. Tool-call volume ramps up and is cut back to nothing at each ctrl-d mark, annotated 498k to 59k. A green band along the bottom, the conversation, runs unbroken through every cut. Below, an archive chip per generation, ending in the live one.">
 
-`rm` will not delete an archived transcript, the way it won't delete a root.
-Digest as often as you like; the chain just gets longer.
+Monday you open the same conversation — every prompt, every reply, every
+decision — at 60k instead of 500k. **The topic's memory stops being capped by
+the context window.**
+
+### Week 3 · the archive
+
+Someone asks why the migration was safe. That reasoning lives in a session you
+digested twice over.
+
+`tab` in the tree, pick the generation, open it. Full tool-call history, exactly
+as it ran.
 
 ---
 
 | Keys | |
 |---|---|
-| `prefix + B` | branch on the text you copied |
-| `prefix + T` | tree — `enter` jump · `ctrl-d` digest · `tab` archives · `ctrl-r` rename · `ctrl-x` delete |
-| `prefix + X` | delete this branch + subtree |
+| `prefix + B` | branch a side quest on the text you copied |
+| `prefix + T` | the board — `enter` jump · `ctrl-d` digest · `tab` archives · `ctrl-r` rename · `ctrl-x` delete |
+| `prefix + X` | delete this side quest + everything under it |
 
 <details>
 <summary><b>How it works</b></summary>
@@ -70,7 +95,8 @@ wrapper around the agent:
 State is one file, `~/.lemux/tree.json`: per session, its parent, the excerpt
 it branched on, and its tmux window. A `SessionStart` hook makes every claude
 session tag its pane as it starts — that's why anything running in tmux is
-branchable with zero ceremony.
+managed with zero ceremony, including sessions you started before installing
+lemux (restart them once so the hook fires).
 
 </details>
 
@@ -96,7 +122,8 @@ token usage:
 
 So the entire conversation is ~35k tokens; the other 460k was tool traffic and
 screenshots. The popup shows your real numbers before writing anything, and
-commits only on `enter`.
+commits only on `enter`. The whole topic is rewritten at once — main and every
+side quest under it.
 
 Digesting archives the old tree rather than deleting it. Archives are detached
 from the working tree and stacked on a timeline behind `tab`; `rm` spares
@@ -122,8 +149,30 @@ Pruning never kills a session that's busy or waiting on you. One known gap:
 Esc-cancelling a permission dialog emits no event, so that session stays
 "waiting" — spared — until you next interact with it.
 
-`prefix + T` only ever shows the tree you're in: from any window you see that
-root and its descendants, never another topic's branches.
+`prefix + T` only ever shows the topic you're in: from any window you see that
+root and its descendants, never another topic's side quests.
+
+</details>
+
+<details>
+<summary><b>Side quests in detail</b></summary>
+
+Each one gets a short name and a one-line brief — where this exploration is
+heading — written as it opens, and the briefs chain down the tree so a deep
+side quest reads as a story rather than a mystery.
+
+Side quests nest: branch a side quest, branch a different line of the same
+answer, go as deep as it takes.
+
+- **Excerpts** come from the system clipboard (`pbpaste`), falling back to
+  tmux's paste buffer. Side quests open as full-width windows — never splits —
+  so mouse selection can't pick up a neighbouring pane.
+- **Big copies** show as first words plus a `⟨N lines copied⟩` badge; the seed
+  keeps the first 600 characters.
+- **Forks are cheap**: a fork shares its full prefix with the parent, so the
+  first message usually hits the prompt cache.
+- The pre-fill waits for claude's UI to render (up to ~15s) and never presses
+  enter, so nothing is auto-submitted.
 
 </details>
 
@@ -140,25 +189,13 @@ one-liner. Uninstall by deleting `~/.local/bin/lemux`, the `>>> lemux >>>`
 block in `~/.tmux.conf`, the lemux hook entries in `~/.claude/settings.json`,
 and `~/.lemux`.
 
-Sessions already running when you install haven't announced themselves — the
-hook only fires on launch, so restart claude in that pane (`claude --continue`
-picks up where you were).
+**Deleting**: `rm` on a side quest takes its window, transcript and everything
+under it. `rm` on a topic name untracks it but always keeps the root
+transcript.
 
 </details>
 
-<details>
-<summary><b>Notes</b></summary>
-
-- **Deleting**: `rm` on a branch takes its window, transcript and subtree.
-  `rm` on a topic name untracks it but always keeps the root transcript.
-- **Forks are cheap**: a fork shares its full prefix with the parent, so the
-  first message usually hits the prompt cache.
-- **Excerpts** come from the system clipboard (`pbpaste`), falling back to
-  tmux's paste buffer. Branches open as full-width windows — never splits — so
-  mouse selection can't pick up a neighbouring pane.
-- **Big copies** show as first words plus a `⟨N lines copied⟩` badge; the seed
-  keeps the first 600 characters.
-- The pre-fill waits for claude's UI to render (up to ~15s) and never presses
-  enter, so nothing is auto-submitted.
-
-</details>
+<p align="center">
+  <img src="assets/demo.gif" width="820"
+       alt="Highlighting a line in an answer, hitting prefix+B, and the side quest opening in its own window with the full parent conversation behind it.">
+</p>
