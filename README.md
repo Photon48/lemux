@@ -103,13 +103,26 @@ session stays "waiting" — spared — until you next interact with it.
 | `prefix + X` | **Delete** the current pane's branch and its whole subtree |
 | `prefix + G` | **Digest**: clone the whole topic into compact copies — prompts and replies only |
 
-Digest is the answer to a context window that filled up with tool calls. It
-walks the topic — the root and every branch under it — and writes a parallel
-tree of new sessions holding only your prompts and Claude's prose; tool calls,
-their results, and the file snapshots that ride along are dropped. On a real
-7.9 MB transcript that came out at 52 KB. The originals are untouched, and the
-digested tree lands in the navigator as `<topic> ⌁`, ready to resume from
-`prefix + T` with the conversation intact and the machinery gone.
+Digest walks the topic — the root and every branch under it — and writes a
+parallel tree of new sessions holding only the conversation: your prompts and
+Claude's prose. Tool calls, their results, attachments and file snapshots are
+dropped. The originals are untouched, and the digested tree lands in the
+navigator as its own `<topic> ⌁`, ready to resume from `prefix + T`.
+
+A transcript is a *tree*, not a list — retries, edited messages and `/clear`
+leave abandoned branches sitting in the file. Digest walks `parentUuid` back
+from the newest leaf and keeps only that chain, so the copy is the conversation
+you actually had. On a real session that dropped 33% of the records as dead
+ends. Byte savings vary wildly with what a session did: a tool-heavy one went
+7.9 MB → 52 KB, an image-heavy one only 11.2 MB → 2.4 MB, since pasted images
+are real conversation and stay.
+
+**What it will not do is shrink `/context` much.** Claude Code already strips
+old tool results from the live context at runtime, so the bulk of what digest
+removes from the *file* was not in your context to begin with. Digest is for
+getting a clean, portable, permanently smaller transcript — one whose whole
+history is prose you can resume, re-read and keep — not a way to buy back
+context window.
 
 The flow: while reading an assistant response, select the sentence you want to
 dig into with the mouse and copy it (`cmd-C` on macOS), then hit `prefix + B`.

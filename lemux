@@ -697,21 +697,29 @@ _mapped() { # key k1 v1 k2 v2 … — the value paired with key, if any
   while (($#)); do [[ "$1" == "$k" ]] && { printf '%s' "$2"; return; }; shift 2; done
 }
 
-digest_file() { # src dst new_sid — strip a transcript to the conversation itself:
-  # user prompts and assistant prose survive; tool calls, tool results and meta
-  # records (attachments, snapshots, …) go. parentUuid is re-chained across the
-  # survivors so --resume still walks one unbroken thread. fromjson? shrugs off
-  # a half-written last line if the session is mid-turn.
+digest_file() { # src dst new_sid — strip a transcript to the conversation itself.
+  # A transcript is a TREE, not a list: retries, message edits and /clear leave
+  # abandoned branches behind in the file. Only the newest leaf's ancestor chain
+  # was ever really the conversation, so we walk parentUuid back from it and
+  # ignore the rest — reading in file order would splice dead branches into the
+  # thread. From that chain, user prompts and assistant prose survive; tool
+  # calls, tool results and meta records (attachments, snapshots, …) go, and
+  # parentUuid is re-chained across the survivors so --resume still walks one
+  # unbroken thread. fromjson? shrugs off a half-written last line mid-turn.
   jq -cR 'fromjson? // empty' "$1" | jq -cs --arg sid "$3" '
-    [ .[]
-      | select(.type=="user" or .type=="assistant")
-      | if .type=="user" and (.message.content|type)=="array"
-          then (.message.content |= map(select(.type? != "tool_result"))) | del(.toolUseResult)
-        elif .type=="assistant" and (.message.content|type)=="array"
-          then .message.content |= map(select(.type? == "text"))
-        else . end
-      | select((.message.content|type) != "array" or (.message.content|length) > 0)
-      | .sessionId = $sid ]
+    (map(select(.uuid != null)) | INDEX(.uuid)) as $by
+    | (map(select(.type=="user" or .type=="assistant")) | last | .uuid) as $leaf
+    | [ $leaf | recurse(. as $u | $by[$u].parentUuid | select(. != null)) ]
+    | reverse | map($by[.] | select(. != null))
+    | [ .[]
+        | select(.type=="user" or .type=="assistant")
+        | if .type=="user" and (.message.content|type)=="array"
+            then (.message.content |= map(select(.type? != "tool_result"))) | del(.toolUseResult)
+          elif .type=="assistant" and (.message.content|type)=="array"
+            then .message.content |= map(select(.type? == "text"))
+          else . end
+        | select((.message.content|type) != "array" or (.message.content|length) > 0)
+        | .sessionId = $sid ]
     | . as $a
     | range(0; length) as $i
     | $a[$i] | .parentUuid = (if $i==0 then null else $a[$i-1].uuid end)
@@ -720,7 +728,7 @@ digest_file() { # src dst new_sid — strip a transcript to the conversation its
 
 cmd_digest() { # <pane_id> — clone this pane's whole topic as a compact copy:
   # same tree shape, new session ids, transcripts digested down to prompts and
-  # replies. Originals untouched; the copy hangs off the root as "<name> ⌁".
+  # replies. Originals untouched; the copy lands as its own topic "<name> ⌁".
   init_state
   local pane="${1:?usage: lemux digest <pane_id>}" cur root o np new dir src dst
   local pairs="" n=0 was=0 now=0
@@ -741,8 +749,9 @@ cmd_digest() { # <pane_id> — clone this pane's whole topic as a compact copy:
     dst=$(session_file "$new" "$dir")
     digest_file "$src" "$dst" "$new"
     was=$((was + $(stat -f %z "$src"))); now=$((now + $(stat -f %z "$dst")))
-    # the digested root re-enters the tree as a fresh branch of the original
-    [[ "$o" == "$root" ]] && np="$root"
+    # the digested root stands on its own — a sibling topic, not a branch of
+    # the thing it copied (nesting it buried the whole copy one level deep)
+    [[ "$o" == "$root" ]] && np=""
     jq_update --arg old "$o" --arg new "$new" --arg parent "$np" \
       --argjson isroot "$([[ "$o" == "$root" ]] && echo true || echo false)" \
       --argjson ts "$(date +%s)" \
