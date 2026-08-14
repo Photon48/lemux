@@ -127,6 +127,19 @@ ago() { # epoch → "5m ago"
   else echo "$((d / 86400))d ago"; fi
 }
 
+# When the topic was last worked in — the newest transcript mtime anywhere in
+# it, so a side quest touched today keeps the whole topic at the top of the
+# resume list. Every node of a topic shares its dir. 0 = nothing on disk yet.
+last_active() { # id
+  local dir n m best=0
+  dir=$(node_field "$1" dir)
+  for n in $(descendants "$1"); do
+    m=$(stat -f %m "$(session_file "$n" "$dir")" 2>/dev/null) || continue
+    ((m > best)) && best=$m
+  done
+  printf '%s' "$best"
+}
+
 hook_block() { # the lifecycle hooks JSON — shared by hooks.json and `lemux setup`
   jq -n --arg s "$(printf '%q' "$SELF")" '{
     SessionStart:      [{hooks: [{type: "command", command: ($s + " _hello")}]}],
@@ -605,13 +618,69 @@ cmd__rename() { # id — edit a branch's name in place (fzf as the line editor,
   old=$(node_field "$id" name)
   [[ -n "$old" ]] || return 0
   new=$(: | fzf --print-query --query "$old" --prompt 'rename> ' --layout=reverse --no-info \
-    --header 'rename this branch · enter: apply · esc: keep as is') || rc=$?
+    --header 'rename this session · enter: apply · esc: keep as is') || rc=$?
   ((rc == 130)) && return 0
   new=$(printf '%s' "$new" | collapse_ws | cut -c1-40)
   [[ -n "$new" && "$new" != "$old" ]] || return 0
   jq_update --arg id "$id" --arg n "$new" 'map(if .id==$id then .name=$n else . end)'
   win=$(node_field "$id" window)
   window_alive "$win" && tmux rename-window -t "$win" "$new" 2>/dev/null || true
+}
+
+cmd__roots() { # id <TAB> rendered line for every lemux topic in $PWD, newest first.
+  # A claude session becomes a lemux one the moment it is first branched from
+  # (adopt_root) — these roots are exactly those sessions.
+  init_state
+  local id seen n mark info rows=""
+  for id in $(jq -r --arg d "$PWD" \
+      '.[] | select(.parent=="" and (.archive | not) and .dir==$d) | .id' "$TREE"); do
+    seen=$(last_active "$id")
+    n=$(descendants "$id" | wc -l)
+    n=$((n - 1))
+    mark="○"
+    window_alive "$(node_field "$id" window)" && mark="●"
+    if ((seen)); then info="opened $(ago "$seen")"; else info="never opened"; fi
+    info+=" · started $(date -r "$(node_field "$id" created)" '+%-d %b')"
+    if ((n == 1)); then info+=" · 1 branch"
+    elif ((n > 1)); then info+=" · $n branches"; fi
+    rows+="$seen"$'\t'"$id"$'\t'
+    rows+=$(printf '%s %s  \033[2m%s\033[0m' "$mark" "$(node_field "$id" name)" "$info")$'\n'
+  done
+  [[ -n "$rows" ]] || return 0
+  printf '%s' "$rows" | sort -t$'\t' -k1,1nr | cut -f2-
+}
+
+no_topics() { die "no lemux sessions in $(basename "$PWD") — run claude here and branch one with prefix+B"; }
+
+cmd_resume() { # fzf over this folder's lemux sessions — like claude --resume, but
+  # over topics: enter revives the whole thread, the preview shows its tree
+  init_state
+  [[ -n "${TMUX:-}" ]] || die "--resume opens sessions in tmux windows — start tmux first"
+  local self list out
+  self=$(printf '%q' "$SELF")
+  list=$(cmd__roots)
+  [[ -n "$list" ]] || no_topics
+  out=$(printf '%s\n' "$list" | fzf --ansi --delimiter='\t' --with-nth=2 --no-sort --layout=reverse \
+    --prompt='lemux> ' \
+    --header=$'lemux sessions in this folder, last worked in first\nenter: resume · ctrl-r: rename · ctrl-x: forget · esc: cancel' \
+    --preview="$self _list {1} | cut -f2-" --wrap-sign='  ' \
+    --preview-window=right,55%,wrap,border-left \
+    --bind="ctrl-r:execute($self _rename {1})+reload($self _roots)" \
+    --bind="ctrl-x:execute-silent($self rm {1})+reload($self _roots)") || return 0
+  cmd_jump "${out%%$'\t'*}"
+}
+
+cmd_continue() { # straight back into the newest session in this folder — root or
+  # side quest, whichever you were last in, mirroring claude --continue
+  init_state
+  [[ -n "${TMUX:-}" ]] || die "--continue opens the session in a tmux window — start tmux first"
+  local id t best="" bt=0
+  for id in $(jq -r --arg d "$PWD" '.[] | select((.archive | not) and .dir==$d) | .id' "$TREE"); do
+    t=$(stat -f %m "$(session_file "$id" "$PWD")" 2>/dev/null) || continue
+    ((t > bt)) && { bt=$t; best=$id; }
+  done
+  [[ -n "$best" ]] || no_topics
+  cmd_jump "$best"
 }
 
 cmd_tree() { # <pane_id> — fzf navigator over this session's own side quests
@@ -1032,6 +1101,12 @@ whatever. Its first branch (prefix+B) enrols it as a topic.
   lemux setup            install or update everything: ~/.local/bin copy,
                          tmux keybindings, claude hooks (idempotent — run it
                          from a checkout after every git pull)
+  lemux --resume         pick up a lemux session in this folder: the ones
+                         branched from here, last worked in first, with their
+                         start date and branch count. Enter revives the whole
+                         thread, ctrl-r renames one, ctrl-x forgets it
+  lemux --continue       jump straight back into the newest session here —
+                         root or side quest, wherever you left off
   lemux tree <pane>      fzf navigator over that session's own side quests
   lemux ask <pane>       branch popup: copied text + a question
   lemux branch <pane>    fork the pane's session (--text <excerpt> --ask <q>)
@@ -1064,12 +1139,15 @@ case "${1:-help}" in
   branch)   shift; cmd_branch "$@" ;;
   ask)      shift; cmd_ask "$@" ;;
   tree)     shift; cmd_tree "$@" ;;
+  --resume|resume)     shift; cmd_resume "$@" ;;
+  --continue|continue) shift; cmd_continue "$@" ;;
   jump)     shift; cmd_jump "$@" ;;
   rm)       shift; cmd_rm "$@" ;;
   digest)   shift; cmd_digest "$@" ;;
   init)     shift; cmd_init "$@" ;;
   _hello)   shift; cmd__hello "$@" ;;
   _list)    shift; cmd__list "$@" ;;
+  _roots)   shift; cmd__roots "$@" ;;
   _popup)   shift; cmd__popup "$@" ;;
   _type)    shift; cmd__type "$@" ;;
   _name)    shift; cmd__name "$@" ;;
