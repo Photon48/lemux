@@ -1,6 +1,11 @@
-# one-time asset-generation scripts stay local
+# macOS
+.DS_Store
+
+# everything that is not viewed on GitHub (recordings, posters, scripts,
+# generator code, retired illustrations) lives here and stays local
+assets-local/
+
+# belt and braces: never commit a recording or a generator script anywhere
+*.mp4
 *.py
 __pycache__/
-
-# local demo recordings
-*.mp4
