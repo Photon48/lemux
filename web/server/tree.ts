@@ -38,10 +38,27 @@ export type Node = {
     parentName: string;
   }; // the node a dive started from
 };
+// One request reads the tree several times and the poller every two seconds;
+// the parse is cached until the file's mtime or size changes, which is how a
+// write from the tmux lemux shows up. Callers must not mutate what they get.
+let cached: { mtime: number; size: number; nodes: Node[] } | null = null;
+const stamp = (st: fs.Stats) => ({ mtime: st.mtimeMs, size: st.size });
+
 export function readTree(): Node[] {
+  let st: fs.Stats;
   try {
-    return JSON.parse(fs.readFileSync(TREE, 'utf8')) as Node[];
+    st = fs.statSync(TREE);
   } catch {
+    cached = null;
+    return [];
+  }
+  if (cached && cached.mtime === st.mtimeMs && cached.size === st.size) return cached.nodes;
+  try {
+    const nodes = JSON.parse(fs.readFileSync(TREE, 'utf8')) as Node[];
+    cached = { ...stamp(st), nodes };
+    return nodes;
+  } catch {
+    cached = null;
     return [];
   }
 }
@@ -51,6 +68,7 @@ function writeTree(nodes: Node[]): void {
   const tmp = path.join(LEMUX_DIR, `.tree.${process.pid}.${Date.now()}`);
   fs.writeFileSync(tmp, JSON.stringify(nodes, null, 2) + '\n');
   fs.renameSync(tmp, TREE);
+  cached = { ...stamp(fs.statSync(TREE)), nodes };
 }
 
 // The tree is shared with the tmux lemux, which also reads, changes and

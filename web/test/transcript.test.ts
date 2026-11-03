@@ -2,6 +2,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { replayCanvas, turns, cleanUserText, carried, lastAssistantText } from '../server/transcript.js';
 import { writeTranscript, fence } from './helpers.js';
+import * as fsSync from 'node:fs';
 
 test('replay: add, update, remove with rewiring, link and unlink', () => {
   const f = writeTranscript([
@@ -171,4 +172,26 @@ test('cleanUserText strips plumbing; carried lifts the @mention blocks', () => {
     { session: 'fuel tank', about: 'weighing tanks', scope: 'brief', text: 'Where it stands: full' },
   ]);
   assert.equal(cleanUserText('<command-name>/clear</command-name>'), '');
+});
+
+test('turns are cached per file and refreshed when the file grows', () => {
+  const f = writeTranscript([
+    { type: 'user', text: 'one' },
+    { type: 'assistant', text: 'two' },
+  ]);
+  const first = turns(f);
+  assert.equal(turns(f), first, 'same parse while the file is unchanged');
+  const { appendFileSync } = fsSync;
+  appendFileSync(
+    f,
+    JSON.stringify({
+      type: 'user',
+      uuid: 'u2',
+      parentUuid: 'u1',
+      message: { role: 'user', content: 'three' },
+    }) + '\n'
+  );
+  const again = turns(f);
+  assert.notEqual(again, first);
+  assert.equal(again.length, 3);
 });

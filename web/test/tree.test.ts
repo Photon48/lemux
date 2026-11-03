@@ -44,3 +44,13 @@ test('a stale lock is broken instead of waited on', () => {
   assert.equal(tree.readTree()[0].name, 'past the stale lock');
   assert.equal(fs.existsSync(lock), false);
 });
+
+test('readTree sees a write made by another process', () => {
+  const before = tree.readTree();
+  assert.equal(before[0].name, 'past the stale lock');
+  const other = [{ id: 'a', parent: '', name: 'from bash', dir: '/x', created: 1 }];
+  fs.writeFileSync(path.join(dir, 'tree.json'), JSON.stringify(other) + '\n');
+  assert.equal(tree.readTree()[0].name, 'from bash');
+  // and a cached read hands back the same parse until the file changes
+  assert.equal(tree.readTree(), tree.readTree());
+});

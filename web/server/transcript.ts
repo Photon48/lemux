@@ -129,7 +129,31 @@ export const textOf = (blocks: Block[]): string[] =>
 // Collapse the chain into renderable turns. Tool calls stay as compact chips
 // with their result attached; everything that isn't prose or a tool is dropped
 // (thinking, images, system reminders, meta records).
+//
+// A canvas, an envelope and a search each walk the same transcripts, so the
+// turns are cached per file until its mtime or size changes. Callers must not
+// mutate what they get.
+const TURNS_CACHE_MAX = 200;
+const turnsCache = new Map<string, { mtime: number; size: number; turns: Turn[] }>();
+
 export function turns(file: string): Turn[] {
+  let st: fs.Stats;
+  try {
+    st = fs.statSync(file);
+  } catch {
+    turnsCache.delete(file);
+    return [];
+  }
+  const hit = turnsCache.get(file);
+  if (hit && hit.mtime === st.mtimeMs && hit.size === st.size) return hit.turns;
+  const fresh = parseTurns(file);
+  turnsCache.delete(file);
+  turnsCache.set(file, { mtime: st.mtimeMs, size: st.size, turns: fresh });
+  if (turnsCache.size > TURNS_CACHE_MAX) turnsCache.delete(turnsCache.keys().next().value!);
+  return fresh;
+}
+
+function parseTurns(file: string): Turn[] {
   const out: Turn[] = [];
   const toolIndex = new Map<string, Block & { kind: 'tool' }>();
   for (const r of chain(file)) {
