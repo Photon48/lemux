@@ -168,12 +168,13 @@ export async function run(o: RunOpts): Promise<void> {
         UserPromptSubmit: [
           {
             hooks: [
-              async () => ({
-                hookSpecificOutput: {
-                  hookEventName: 'UserPromptSubmit' as const,
-                  additionalContext: o.reminder,
-                },
-              }),
+              () =>
+                Promise.resolve({
+                  hookSpecificOutput: {
+                    hookEventName: 'UserPromptSubmit' as const,
+                    additionalContext: o.reminder,
+                  },
+                }),
             ],
           },
         ],

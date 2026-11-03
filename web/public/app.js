@@ -528,7 +528,7 @@
   const FRAME_CSS = `:root{color-scheme:dark}html,body{margin:0;background:transparent}body{font:12px/1.4 "IBM Plex Sans",-apple-system,"Segoe UI",sans-serif;color:#ece7df;padding:2px}svg{width:100%;height:auto;display:block;font-family:inherit}svg text{font-family:inherit}`;
   function frame(n) {
     const f = h('iframe', { sandbox: 'allow-scripts', title: n.id, scrolling: 'no' });
-    f.srcdoc = `<!DOCTYPE html><html><head><meta charset="utf-8"><link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;500;600&display=swap" rel="stylesheet"><style>${FRAME_CSS}</style></head><body>${n.art || ''}<script>(function(){var s=function(){parent.postMessage({lemuxH:document.documentElement.scrollHeight,k:${JSON.stringify(n.id)}},'*')};new ResizeObserver(s).observe(document.body);window.addEventListener('load',s);setTimeout(s,50);setTimeout(s,600);})()<\/script></body></html>`;
+    f.srcdoc = `<!DOCTYPE html><html><head><meta charset="utf-8"><link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;500;600&display=swap" rel="stylesheet"><style>${FRAME_CSS}</style></head><body>${n.art || ''}<script>(function(){var s=function(){parent.postMessage({lemuxH:document.documentElement.scrollHeight,k:${JSON.stringify(n.id)}},'*')};new ResizeObserver(s).observe(document.body);window.addEventListener('load',s);setTimeout(s,50);setTimeout(s,600);})()</script></body></html>`;
     return f;
   }
   window.addEventListener('message', (e) => {
@@ -546,7 +546,6 @@
   function nodeEl(n) {
     const cv = state.cv;
     const p = cv.pos[n.id] || { x: 60, y: 60 };
-    const user = isUser(n.id);
     const d = h('div', {
       class: `node ${n.kind}${state.sel.has(n.id) ? ' sel' : ''}${cv.folded.includes(n.id) ? ' folded' : ''}${cv.aside.includes(n.id) ? ' aside' : ''}${doorsFor(n.id).length ? ' has-portal' : ''}`,
       'data-id': n.id,
@@ -582,7 +581,7 @@
           title: 'Drag out to ask from here, or onto another node to pick it too. Double-click to dive in.',
           onmousedown: (e) => {
             e.stopPropagation();
-            pullThread(n, e);
+            pullThread(n);
           },
         },
         '●'
@@ -1298,7 +1297,7 @@
       }
     };
   }
-  function pullThread(n, e) {
+  function pullThread(n) {
     const tmp = document.createElementNS('http://www.w3.org/2000/svg', 'path');
     tmp.setAttribute('class', 'tmp');
     E.append(tmp);

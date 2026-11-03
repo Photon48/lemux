@@ -120,7 +120,7 @@ export function turns(file: string): Turn[] {
       if (!Array.isArray(content)) continue;
       const blocks: Block[] = [];
       const ctx: Carried[] = [];
-      for (const b of content as any[]) {
+      for (const b of content) {
         if (b?.type === 'text') {
           const text = cleanUserText(b.text || '');
           ctx.push(...carried(b.text || ''));
@@ -153,7 +153,7 @@ export function turns(file: string): Turn[] {
     } else if (r.type === 'assistant') {
       if (!Array.isArray(content)) continue;
       const blocks: Block[] = [];
-      for (const b of content as any[]) {
+      for (const b of content) {
         if (b?.type === 'text' && b.text?.trim()) blocks.push({ kind: 'text', text: b.text });
         else if (b?.type === 'tool_use') {
           const t: Block & { kind: 'tool' } = {
@@ -241,7 +241,7 @@ export function toolSummary(name: string, input: any): string {
     case 'Skill':
       return input.skill || '';
     default: {
-      const v = Object.values(input).find((x) => typeof x === 'string') as string | undefined;
+      const v = Object.values(input).find((x): x is string => typeof x === 'string');
       return (v || '').slice(0, 120);
     }
   }
@@ -257,7 +257,7 @@ export function artifacts(file: string): string[] {
   const set = new Set<string>();
   for (const r of chain(file)) {
     if (r.type !== 'assistant' || !Array.isArray(r.message?.content)) continue;
-    for (const b of r.message!.content as any[]) {
+    for (const b of r.message.content) {
       if (b?.type !== 'tool_use') continue;
       if (['Write', 'Edit', 'MultiEdit', 'NotebookEdit'].includes(b.name)) {
         const p = b.input?.file_path || b.input?.notebook_path;
@@ -377,6 +377,19 @@ export type Replay = {
 
 const CANVAS_FENCE = /```canvas[^\n]*\n([\s\S]*?)```/;
 
+// The fence body as a list; a trailing comma is forgiven, anything else unparseable is no ops.
+function parseOps(src: string): any[] {
+  for (const s of [src, src.replace(/,\s*]$/, ']')]) {
+    try {
+      const v: unknown = JSON.parse(s);
+      return Array.isArray(v) ? v : [];
+    } catch {
+      /* try the next */
+    }
+  }
+  return [];
+}
+
 // seed: nodes the canvas starts with (a dive's origin), so updates and links can land on them
 export function replayCanvas(file: string, since = 0, seed: CNode[] = []): Replay {
   const nodes: CNode[] = seed.map((n) => ({ ...n }));
@@ -417,17 +430,7 @@ export function replayCanvas(file: string, since = 0, seed: CNode[] = []): Repla
       .trim();
     const tail = rest || '';
     if (cm) {
-      let list: any[] = [];
-      try {
-        list = JSON.parse(cm[1]);
-      } catch {
-        try {
-          list = JSON.parse(cm[1].replace(/,\s*]$/, ']'));
-        } catch {
-          list = [];
-        }
-      }
-      if (!Array.isArray(list)) list = [];
+      const list = parseOps(cm[1]);
       for (const o of list) {
         if (!o || typeof o !== 'object') continue;
         const m = byId();
@@ -561,7 +564,7 @@ export function claudeArtifacts(file: string): Artifact[] {
   for (const r of chain(file)) {
     const content = r.message?.content;
     if (!Array.isArray(content)) continue;
-    for (const b of content as any[]) {
+    for (const b of content) {
       if (r.type === 'assistant' && b?.type === 'tool_use' && ARTIFACT_TOOL.test(b.name)) {
         const inp = b.input || {};
         const a = put({ key: '', ...fromSlugField(inp.slug), title: inp.title || inp.artifact_title });
@@ -600,18 +603,22 @@ export function claudeArtifacts(file: string): Artifact[] {
   return [...uniq.keys()].filter((a) => a.url || a.slug);
 }
 
+function listDir(d: string): string[] {
+  try {
+    return fs.readdirSync(d);
+  } catch {
+    return [];
+  }
+}
+
 // Claude sessions in a folder that lemux doesn't track yet — candidates to adopt.
 export function unlistedSessions(
   dir: string,
   known: Set<string>
 ): { id: string; firstPrompt: string; mtime: number }[] {
   const d = path.join(PROJECTS, munge(dir));
-  let names: string[] = [];
-  try {
-    names = fs.readdirSync(d).filter((n) => n.endsWith('.jsonl'));
-  } catch {
-    return [];
-  }
+  const names = listDir(d).filter((n) => n.endsWith('.jsonl'));
+  if (!names.length) return [];
   const out: { id: string; firstPrompt: string; mtime: number }[] = [];
   for (const n of names) {
     const id = n.slice(0, -6);

@@ -25,7 +25,6 @@ import {
 } from './tree.js';
 import {
   sessionFile,
-  turns,
   replayCanvas,
   lastAssistantText,
   wholeConversation,
@@ -58,7 +57,7 @@ function readBody(req: http.IncomingMessage, max = 30_000_000): Promise<any> {
       try {
         resolve(s ? JSON.parse(s) : {});
       } catch (e) {
-        reject(e);
+        reject(e instanceof Error ? e : new Error(String(e)));
       }
     });
     req.on('error', reject);
@@ -227,6 +226,19 @@ function fullCanvas(n: Node) {
 
 // @mentions: "@fuel tank" brings that canvas along as context.
 type Scope = 'last' | 'whole' | 'brief';
+function mentionBody(f: string, n: Node, scope: Scope): string {
+  if (scope === 'whole') return wholeConversation(f);
+  if (scope === 'last') return lastAssistantText(f);
+  const first = firstUserText(f).replace(/\s+/g, ' ').slice(0, 300);
+  const last = lastAssistantText(f, 600);
+  return [
+    n.diverge ? `About: ${n.diverge}` : '',
+    first ? `It started with: ${first}` : '',
+    last ? `Where it stands: ${last}` : '',
+  ]
+    .filter(Boolean)
+    .join('\n');
+}
 function expandMentions(text: string, scope: Scope = 'last'): { prompt: string; display: string } {
   const nodes = readTree().filter((n) => !n.archive && n.name);
   const byLen = [...nodes].sort((a, b) => b.name.length - a.name.length);
@@ -238,19 +250,7 @@ function expandMentions(text: string, scope: Scope = 'last'): { prompt: string; 
     scan = scan.replace(new RegExp(re.source, 'gi'), ' ');
     const f = sessionFile(n.id, n.dir);
     if (!f) continue;
-    let body = '';
-    if (scope === 'whole') body = wholeConversation(f);
-    else if (scope === 'brief') {
-      const first = firstUserText(f).replace(/\s+/g, ' ').slice(0, 300);
-      const last = lastAssistantText(f, 600);
-      body = [
-        n.diverge ? `About: ${n.diverge}` : '',
-        first ? `It started with: ${first}` : '',
-        last ? `Where it stands: ${last}` : '',
-      ]
-        .filter(Boolean)
-        .join('\n');
-    } else body = lastAssistantText(f);
+    const body = mentionBody(f, n, scope);
     if (!body) continue;
     blocks.push(
       `<lemux-context session="${n.name}" about="${(n.diverge || '').replace(/"/g, "'")}" scope="${scope}">\n${body}\n</lemux-context>`
@@ -479,7 +479,7 @@ async function api(req: http.IncomingMessage, res: http.ServerResponse, url: URL
     const n = getNode(String(b.sid || ''));
     if (!n) return json(res, 404, { error: 'unknown session' });
     const name = String(b.name || 'file')
-      .replace(/[^\w.\-]+/g, '_')
+      .replace(/[^\w.-]+/g, '_')
       .slice(0, 80);
     const dir = path.join(n.dir, '.lemux', 'files');
     fs.mkdirSync(dir, { recursive: true });
@@ -808,14 +808,17 @@ function serveStatic(res: http.ServerResponse, url: URL) {
 }
 
 // ---------- server + websocket ----------
-const server = http.createServer(async (req, res) => {
+async function handle(req: http.IncomingMessage, res: http.ServerResponse): Promise<void> {
   const url = new URL(req.url || '/', `http://${req.headers.host}`);
   try {
     if (url.pathname.startsWith('/api/')) await api(req, res, url);
     else serveStatic(res, url);
-  } catch (e: any) {
-    json(res, 500, { error: e?.message || String(e) });
+  } catch (e) {
+    json(res, 500, { error: e instanceof Error ? e.message : String(e) });
   }
+}
+const server = http.createServer((req, res) => {
+  void handle(req, res);
 });
 const wss = new WebSocketServer({ server, path: '/ws' });
 function broadcast(msg: unknown) {
