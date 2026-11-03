@@ -96,6 +96,13 @@ same settings as `claude --dangerously-skip-permissions`. The tmux side still
 shows the same answers as fenced JSON. Needs Node ≥ 20. Digest and archives are
 terminal-only.
 
+Working on it: `npm run check` in `web/` runs the typecheck, eslint, the
+prettier check and the tests (`node:test`, no browser needed). Point the server
+at a scratch tree while you poke at it so the real one stays untouched:
+`LEMUX_DIR=/tmp/lemux-scratch PORT=4399 npm start`. The server is `server/`
+(one module per concern, every request body parsed by a zod schema in
+`schemas.ts`), the page is `public/js/` (ES modules, no build step).
+
 </details>
 
 <details>
