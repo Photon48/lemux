@@ -1,0 +1,23 @@
+{
+  "name": "lemux-web",
+  "version": "0.1.0",
+  "private": true,
+  "description": "lemux in the browser — side quests, supervision and artifacts for Claude Code sessions",
+  "type": "module",
+  "scripts": {
+    "start": "tsx server/index.ts",
+    "dev": "tsx watch server/index.ts",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@anthropic-ai/claude-agent-sdk": "^0.3.316",
+    "marked": "^18.1.2",
+    "ws": "^8.22.1"
+  },
+  "devDependencies": {
+    "@types/node": "^26.6.6",
+    "@types/ws": "^8.18.0",
+    "tsx": "^4.23.15",
+    "typescript": "^7.0.2"
+  }
+}
