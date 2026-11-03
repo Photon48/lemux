@@ -56,6 +56,49 @@ Digest as often as you like; the chain just gets longer.
 | `prefix + X` | delete this branch + subtree |
 
 <details>
+<summary><b>In the browser</b></summary>
+
+The workstation: the same sessions and transcripts, for someone who is sick of
+text. A session is a canvas. Each answer cc gives is a change to that canvas:
+a new node (a picture or a short block of words, its choice), a node changed
+in place, one removed, or a link between two. You arrange the nodes, frame
+them, write your own notes among them, and the conversation itself is folded
+into a tiny drawer at the bottom.
+
+```sh
+cd web && npm install && npm start     # → http://localhost:4321
+```
+
+- **Canvases** are the sessions of a project, nested as they were branched.
+  *+ new* opens an empty canvas; the first question draws its first nodes.
+- **Ask** from the bar, or pick a spot with the Ask tool and the answer lands
+  there, or pull the ● on a node out into space to ask from it. Pick nodes
+  first and the question is about them; cc gets their full source.
+- **Dive** by double-clicking a node: a side quest with the whole conversation
+  behind it and its own canvas, starting from that node. The node becomes a
+  portal; the parent never changes.
+- **Yours:** notes (titled, editable, read by cc when you ask), frames (named,
+  movable, resizable; one named *later* sets aside what you drop in it),
+  images and files dropped in (saved under the project's `.lemux/files`),
+  links drawn between nodes, positions, folds. Delete is the taste signal: cc
+  is told what you removed.
+- **Find** searches every canvas in the project. Undo covers your own changes.
+- Two fingers drag to pan, pinch to zoom; Select is the default tool, Pan is
+  on the rail.
+
+cc is told all this through a contract appended to its system prompt and a
+canvas envelope with every question: every node's id, kind, question and
+caption, the picked nodes' sources, links, frames, your notes and files. It
+answers with a fenced list of operations that the app replays from the
+transcript; your own layer is stored on the session in `~/.lemux/tree.json`.
+Sessions run through the Claude Agent SDK with your installed claude and the
+same settings as `claude --dangerously-skip-permissions`. The tmux side still
+shows the same answers as fenced JSON. Needs Node ≥ 20. Digest and archives are
+terminal-only.
+
+</details>
+
+<details>
 <summary><b>How it works</b></summary>
 
 One bash script over things that already exist — no daemon, no database, no
