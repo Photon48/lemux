@@ -28,6 +28,20 @@ export default tseslint.config(
     },
   },
   {
+    // node:test's test() returns a promise nobody needs to await
+    files: ['test/**/*.ts'],
+    rules: {
+      '@typescript-eslint/no-floating-promises': [
+        'error',
+        {
+          allowForKnownSafeCalls: [
+            { from: 'package', package: 'node:test', name: ['test', 'describe', 'it'] },
+          ],
+        },
+      ],
+    },
+  },
+  {
     files: ['public/**/*.js'],
     languageOptions: { ecmaVersion: 2022, sourceType: 'module', globals: globals.browser },
     rules: {
