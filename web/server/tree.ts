@@ -53,10 +53,55 @@ function writeTree(nodes: Node[]): void {
   fs.renameSync(tmp, TREE);
 }
 
+// The tree is shared with the tmux lemux, which also reads, changes and
+// rewrites it. Both take this lock around a read-modify-write so neither
+// loses the other's change. mkdir is atomic on every filesystem we run on; a
+// lock older than LOCK_STALE_MS is a crash's leftover and is broken.
+const LOCK = path.join(LEMUX_DIR, '.tree.lock');
+export const LOCK_STALE_MS = 5000;
+const pause = (ms: number) => Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, ms);
+
+export function withTreeLock<T>(fn: () => T): T {
+  for (;;) {
+    try {
+      fs.mkdirSync(LOCK);
+      break;
+    } catch (e) {
+      if ((e as NodeJS.ErrnoException).code !== 'EEXIST') throw e;
+    }
+    let age: number;
+    try {
+      age = Date.now() - fs.statSync(LOCK).mtimeMs;
+    } catch {
+      continue; // released between our two calls
+    }
+    if (age > LOCK_STALE_MS) {
+      try {
+        fs.rmdirSync(LOCK);
+      } catch {
+        /* someone else broke it first */
+      }
+      continue;
+    }
+    pause(5);
+  }
+  try {
+    return fn();
+  } finally {
+    try {
+      fs.rmdirSync(LOCK);
+    } catch {
+      /* already gone */
+    }
+  }
+}
+
 export function updateTree(fn: (nodes: Node[]) => Node[]): Node[] {
-  const next = fn(readTree());
-  writeTree(next);
-  return next;
+  return withTreeLock(() => {
+    const next = fn(readTree());
+    writeTree(next);
+    return next;
+  });
 }
 
 export function getNode(id: string, nodes = readTree()): Node | undefined {

@@ -27,10 +27,28 @@ munge() { printf '%s' "$1" | sed 's/[^A-Za-z0-9]/-/g'; }
 
 new_uuid() { uuidgen | tr '[:upper:]' '[:lower:]'; }
 
+# The tree is shared with the browser lemux, which also reads, changes and
+# rewrites it. Both take this lock around a read-modify-write so neither loses
+# the other's change. mkdir is atomic; a lock older than five seconds is a
+# crash's leftover and is broken.
+tree_lock() {
+  local lock="$LEMUX_DIR/.tree.lock" age
+  until mkdir "$lock" 2>/dev/null; do
+    age=$(( $(date +%s) - $(stat -f %m "$lock" 2>/dev/null || echo 0) ))
+    if [[ $age -gt 5 ]]; then rmdir "$lock" 2>/dev/null; continue; fi
+    sleep 0.02
+  done
+}
+tree_unlock() { rmdir "$LEMUX_DIR/.tree.lock" 2>/dev/null; }
+
 jq_update() {
-  local tmp
+  local tmp rc
+  tree_lock
   tmp=$(mktemp "$LEMUX_DIR/.tree.XXXXXX")
   jq "$@" "$TREE" >"$tmp" && mv "$tmp" "$TREE"
+  rc=$?
+  tree_unlock
+  return $rc
 }
 
 node_field() { jq -r --arg id "$1" ".[] | select(.id==\$id) | .$2 // \"\"" "$TREE"; }
