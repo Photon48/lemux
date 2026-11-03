@@ -8,6 +8,7 @@ import path from 'node:path';
 import { randomUUID } from 'node:crypto';
 import { fileURLToPath } from 'node:url';
 import { WebSocketServer, WebSocket } from 'ws';
+import { ZodError } from 'zod';
 import {
   LEMUX_DIR,
   readTree,
@@ -21,7 +22,22 @@ import {
   hookNotify,
   type Node,
 } from './tree.js';
-import { applyOps, blankCanvas, canvasOf, collapse, type CanvasOp, type Frame } from './canvas.js';
+import { applyOps, blankCanvas, canvasOf, collapse, type Frame, type UserNode } from './canvas.js';
+import {
+  AdoptBody,
+  BranchBody,
+  IdBody,
+  NewBody,
+  PermissionBody,
+  ProjectBody,
+  ProjectsFile,
+  RenameBody,
+  SendBody,
+  SidBody,
+  UploadBody,
+  parseCanvasPost,
+  type Scope,
+} from './schemas.js';
 import {
   sessionFile,
   replayCanvas,
@@ -45,8 +61,8 @@ function json(res: http.ServerResponse, status: number, body: unknown) {
   res.writeHead(status, { 'content-type': 'application/json; charset=utf-8' });
   res.end(JSON.stringify(body));
 }
-function readBody(req: http.IncomingMessage, max = 30_000_000): Promise<any> {
-  return new Promise((resolve, reject) => {
+function readBody(req: http.IncomingMessage, max = 30_000_000): Promise<unknown> {
+  return new Promise<unknown>((resolve, reject) => {
     let s = '';
     req.on('data', (c) => {
       s += c;
@@ -65,7 +81,7 @@ function readBody(req: http.IncomingMessage, max = 30_000_000): Promise<any> {
 const expandHome = (p: string) => (p.startsWith('~') ? path.join(os.homedir(), p.slice(1)) : p);
 function extraProjects(): string[] {
   try {
-    return JSON.parse(fs.readFileSync(PROJECTS_FILE, 'utf8'));
+    return ProjectsFile.parse(JSON.parse(fs.readFileSync(PROJECTS_FILE, 'utf8')));
   } catch {
     return [];
   }
@@ -206,7 +222,6 @@ function fullCanvas(n: Node) {
 }
 
 // @mentions: "@fuel tank" brings that canvas along as context.
-type Scope = 'last' | 'whole' | 'brief';
 function mentionBody(f: string, n: Node, scope: Scope): string {
   if (scope === 'whole') return wholeConversation(f);
   if (scope === 'last') return lastAssistantText(f);
@@ -286,6 +301,20 @@ function envelopeFor(
   });
 }
 
+// The node a dive starts from, as the child remembers it.
+function originOf(src: CNode | UserNode, parentName: string): NonNullable<Node['origin']> {
+  const cc = 'by' in src ? src : undefined;
+  return {
+    id: src.id,
+    kind: src.kind === 'text' || src.kind === 'note' ? 'text' : 'pic',
+    q: src.q,
+    cap: cc?.cap || '',
+    art: cc?.art,
+    text: src.text,
+    parentName,
+  };
+}
+
 // ---------- API ----------
 async function api(req: http.IncomingMessage, res: http.ServerResponse, url: URL): Promise<void> {
   const p = url.pathname;
@@ -295,8 +324,8 @@ async function api(req: http.IncomingMessage, res: http.ServerResponse, url: URL
   if (req.method === 'GET' && p === '/api/projects')
     return json(res, 200, { projects: projectList(), home: os.homedir() });
   if (req.method === 'POST' && p === '/api/projects') {
-    const b = await readBody(req);
-    const dir = expandHome(String(b.dir || '').trim()).replace(/\/+$/, '');
+    const b = ProjectBody.parse(await readBody(req));
+    const dir = expandHome(b.dir.trim()).replace(/\/+$/, '');
     if (!dir || !fs.existsSync(dir) || !fs.statSync(dir).isDirectory())
       return json(res, 400, { error: 'that folder does not exist' });
     rememberProject(dir);
@@ -334,9 +363,8 @@ async function api(req: http.IncomingMessage, res: http.ServerResponse, url: URL
   if (req.method === 'POST' && (mm = m(/^\/api\/canvas\/([^/]+)$/))) {
     const n = getNode(mm[1]);
     if (!n) return json(res, 404, { error: 'unknown session' });
-    const b = await readBody(req);
-    const ops = (Array.isArray(b.ops) ? b.ops : [b]) as CanvasOp[];
-    const r = applyOps(canvasOf(n.canvas), ops, { noHistory: !!b.noHistory, newId: randomUUID });
+    const b = parseCanvasPost(await readBody(req));
+    const r = applyOps(canvasOf(n.canvas), b.ops, { noHistory: b.noHistory, newId: randomUUID });
     if (r.undone !== undefined) {
       if (r.undone) {
         patchNode(n.id, { canvas: r.state });
@@ -346,22 +374,20 @@ async function api(req: http.IncomingMessage, res: http.ServerResponse, url: URL
     }
     if (r.changed) {
       patchNode(n.id, { canvas: r.state });
-      broadcast({ type: 'canvas', sid: n.id, quiet: !!b.quiet });
+      broadcast({ type: 'canvas', sid: n.id, quiet: b.quiet });
     }
     return json(res, 200, { ok: true });
   }
   // a file dropped onto the canvas: saved into the project, served back
   if (req.method === 'POST' && p === '/api/upload') {
-    const b = await readBody(req);
-    const n = getNode(String(b.sid || ''));
+    const b = UploadBody.parse(await readBody(req));
+    const n = getNode(b.sid);
     if (!n) return json(res, 404, { error: 'unknown session' });
-    const name = String(b.name || 'file')
-      .replace(/[^\w.-]+/g, '_')
-      .slice(0, 80);
+    const name = b.name.replace(/[^\w.-]+/g, '_').slice(0, 80);
     const dir = path.join(n.dir, '.lemux', 'files');
     fs.mkdirSync(dir, { recursive: true });
     const file = path.join(dir, `${Date.now()}-${name}`);
-    fs.writeFileSync(file, Buffer.from(String(b.data || ''), 'base64'));
+    fs.writeFileSync(file, Buffer.from(b.data, 'base64'));
     return json(res, 200, {
       path: file,
       name,
@@ -392,7 +418,7 @@ async function api(req: http.IncomingMessage, res: http.ServerResponse, url: URL
   if (req.method === 'GET' && p === '/api/search') {
     const dir = url.searchParams.get('dir') || '';
     const q = (url.searchParams.get('q') || '').toLowerCase();
-    const hits: any[] = [];
+    const hits: { sid: string; canvas: string; id: string; q: string; cap: string }[] = [];
     for (const n of readTree().filter((x) => !x.archive && x.dir === dir)) {
       const cv = fullCanvas(n);
       for (const x of [
@@ -414,17 +440,16 @@ async function api(req: http.IncomingMessage, res: http.ServerResponse, url: URL
 
   // ask: the answer changes the canvas
   if (req.method === 'POST' && p === '/api/send') {
-    const b = await readBody(req);
-    const n = getNode(String(b.sid || ''));
+    const b = SendBody.parse(await readBody(req));
+    const n = getNode(b.sid);
     if (!n) return json(res, 404, { error: 'unknown session' });
-    const text = String(b.text || '').trim();
+    const text = b.text.trim();
     if (!text) return json(res, 400, { error: 'empty message' });
     if (S.isLive(n.id)) return json(res, 409, { error: 'still drawing' });
-    const scope: Scope = ['last', 'whole', 'brief'].includes(b.scope) ? b.scope : 'last';
-    const { prompt: body, display } = expandMentions(text, scope);
-    const picked: string[] = Array.isArray(b.picked) ? b.picked.map(String) : [];
-    const at = b.at && typeof b.at.x === 'number' ? { x: Math.round(b.at.x), y: Math.round(b.at.y) } : null;
-    const from = b.from ? String(b.from) : picked[0] || null;
+    const { prompt: body, display } = expandMentions(text, b.scope);
+    const picked = b.picked;
+    const at = b.at ? { x: Math.round(b.at.x), y: Math.round(b.at.y) } : null;
+    const from = b.from || picked[0] || null;
     const prompt = `${envelopeFor(n, picked, at, from)}\n\n${body}`;
     // where the answer should land, remembered until the result arrives
     pendingPlace.set(n.id, { at, from, picked });
@@ -443,16 +468,14 @@ async function api(req: http.IncomingMessage, res: http.ServerResponse, url: URL
 
   // dive: a side quest that starts from a node
   if (req.method === 'POST' && p === '/api/branch') {
-    const b = await readBody(req);
-    const parent = getNode(String(b.parent || ''));
+    const b = BranchBody.parse(await readBody(req));
+    const parent = getNode(b.parent);
     if (!parent) return json(res, 404, { error: 'unknown parent' });
     const pf = sessionFile(parent.id, parent.dir);
     if (!pf) return json(res, 400, { error: 'ask something first' });
-    const question = collapse(String(b.question || ''));
+    const question = collapse(b.question);
     const cv = fullCanvas(parent);
-    const src =
-      cv.nodes.find((x) => x.id === String(b.node || '')) ||
-      cv.notes.find((x) => x.id === String(b.node || ''));
+    const src = cv.nodes.find((x) => x.id === b.node) || cv.notes.find((x) => x.id === b.node);
     if (!src) return json(res, 400, { error: 'pick a node to dive from' });
     const id = randomUUID();
     const name =
@@ -461,15 +484,7 @@ async function api(req: http.IncomingMessage, res: http.ServerResponse, url: URL
         .slice(0, 28)
         .replace(/[^\x20-\x7e]/g, '')
         .trim() || 'dive';
-    const origin = {
-      id: src.id,
-      kind: (src as any).kind === 'text' || (src as any).kind === 'note' ? 'text' : 'pic',
-      q: src.q,
-      cap: (src as any).cap || '',
-      art: (src as any).art,
-      text: (src as any).text,
-      parentName: parent.name,
-    };
+    const origin = originOf(src, parent.name);
     addNode({
       id,
       parent: parent.id,
@@ -487,7 +502,7 @@ async function api(req: http.IncomingMessage, res: http.ServerResponse, url: URL
     for (let cur: Node | undefined = parent; cur; cur = cur.parent ? getNode(cur.parent) : undefined)
       if (cur.diverge) chain.unshift(cur.diverge);
     brief(id, {
-      ctx: ((src as any).cap || '') + ' ' + ((src as any).text || ''),
+      ctx: origin.cap + ' ' + (origin.text || ''),
       excerpt: src.q,
       question,
       chain,
@@ -514,9 +529,9 @@ async function api(req: http.IncomingMessage, res: http.ServerResponse, url: URL
   }
 
   if (req.method === 'POST' && p === '/api/new') {
-    const b = await readBody(req);
-    const dir = expandHome(String(b.dir || '').trim());
-    const text = String(b.text || '').trim();
+    const b = NewBody.parse(await readBody(req));
+    const dir = expandHome(b.dir.trim());
+    const text = b.text.trim();
     if (!dir || !fs.existsSync(dir) || !fs.statSync(dir).isDirectory())
       return json(res, 400, { error: 'that folder does not exist' });
     if (!text) return json(res, 400, { error: 'ask something to open the canvas' });
@@ -525,10 +540,7 @@ async function api(req: http.IncomingMessage, res: http.ServerResponse, url: URL
     addNode({
       id,
       parent: '',
-      name:
-        String(b.name || '')
-          .trim()
-          .slice(0, 40) || path.basename(dir),
+      name: b.name.trim().slice(0, 40) || path.basename(dir),
       dir,
       created: Math.floor(Date.now() / 1000),
       window: '',
@@ -552,16 +564,16 @@ async function api(req: http.IncomingMessage, res: http.ServerResponse, url: URL
     return json(res, 200, { id });
   }
   if (req.method === 'POST' && p === '/api/rename') {
-    const b = await readBody(req);
-    const name = collapse(String(b.name || '')).slice(0, 60);
-    if (!getNode(String(b.id)) || !name) return json(res, 400, { error: 'bad rename' });
-    patchNode(String(b.id), { name });
+    const b = RenameBody.parse(await readBody(req));
+    const name = collapse(b.name).slice(0, 60);
+    if (!getNode(b.id) || !name) return json(res, 400, { error: 'bad rename' });
+    patchNode(b.id, { name });
     broadcast({ type: 'tree' });
     return json(res, 200, { ok: true });
   }
   if (req.method === 'POST' && p === '/api/delete') {
-    const b = await readBody(req);
-    const n = getNode(String(b.id || ''));
+    const b = IdBody.parse(await readBody(req));
+    const n = getNode(b.id);
     if (!n) return json(res, 404, { error: 'unknown session' });
     const ids = descendants(n.id);
     for (const id of ids) await S.interrupt(id);
@@ -582,18 +594,18 @@ async function api(req: http.IncomingMessage, res: http.ServerResponse, url: URL
     return json(res, 200, { ok: true, removed: ids });
   }
   if (req.method === 'POST' && p === '/api/interrupt') {
-    const b = await readBody(req);
-    return json(res, 200, { ok: await S.interrupt(String(b.sid || '')) });
+    const b = SidBody.parse(await readBody(req));
+    return json(res, 200, { ok: await S.interrupt(b.sid) });
   }
   if (req.method === 'POST' && p === '/api/permission') {
-    const b = await readBody(req);
-    const ok = S.answerPermission(String(b.sid), String(b.reqId), b.reply);
+    const b = PermissionBody.parse(await readBody(req));
+    const ok = S.answerPermission(b.sid, b.reqId, b.reply);
     return json(res, ok ? 200 : 404, { ok });
   }
   if (req.method === 'POST' && p === '/api/adopt') {
-    const b = await readBody(req);
-    const id = String(b.id || '');
-    const dir = expandHome(String(b.dir || ''));
+    const b = AdoptBody.parse(await readBody(req));
+    const id = b.id;
+    const dir = expandHome(b.dir);
     const f = sessionFile(id, dir);
     if (!f) return json(res, 404, { error: 'no transcript for that session' });
     if (!getNode(id)) {
@@ -691,6 +703,10 @@ async function handle(req: http.IncomingMessage, res: http.ServerResponse): Prom
     if (url.pathname.startsWith('/api/')) await api(req, res, url);
     else serveStatic(res, url);
   } catch (e) {
+    if (e instanceof ZodError)
+      return json(res, 400, {
+        error: e.issues.map((i) => `${i.path.join('.') || 'body'}: ${i.message}`).join('; '),
+      });
     json(res, 500, { error: e instanceof Error ? e.message : String(e) });
   }
 }

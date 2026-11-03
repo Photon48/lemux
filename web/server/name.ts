@@ -2,6 +2,7 @@
 // "diverge" story — the same prompt the tmux lemux uses, run through the SDK.
 import { query } from '@anthropic-ai/claude-agent-sdk';
 import { patchNode } from './tree.js';
+import { BriefJson, jsonIn } from './schemas.js';
 
 const SYSTEM = `A side quest is being branched off a parent AI conversation. The user highlighted a passage of the assistant's message and/or typed a question, steering the exploration somewhere new. You write the branch's brief.
 
@@ -60,25 +61,17 @@ export async function brief(id: string, b: BriefInput): Promise<void> {
   } catch {
     return;
   }
-  const m = text.match(/\{[\s\S]*\}/);
-  if (!m) return;
-  try {
-    const j = JSON.parse(m[0]);
-    const name = String(j.name || '')
-      .replace(/[^A-Za-z0-9 -]/g, '')
-      .trim()
-      .split(/\s+/)
-      .slice(0, 4)
-      .join(' ');
-    const diverge = String(j.diverge || '')
-      .replace(/\s+/g, ' ')
-      .trim()
-      .slice(0, 220);
-    if (!name && !diverge) return;
-    patchNode(id, { ...(name ? { name } : {}), diverge });
-  } catch {
-    /* unparseable — placeholder name stays */
-  }
+  const j = jsonIn(text, BriefJson);
+  if (!j) return; // unparseable — the placeholder name stays
+  const name = (j.name || '')
+    .replace(/[^A-Za-z0-9 -]/g, '')
+    .trim()
+    .split(/\s+/)
+    .slice(0, 4)
+    .join(' ');
+  const diverge = (j.diverge || '').replace(/\s+/g, ' ').trim().slice(0, 220);
+  if (!name && !diverge) return;
+  patchNode(id, { ...(name ? { name } : {}), diverge });
 }
 
 // A fresh topic also gets a name: a few words for its first prompt.

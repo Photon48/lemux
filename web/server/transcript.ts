@@ -4,6 +4,7 @@
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
+import { ArtifactResult, jsonIn, parseFenceOps } from './schemas.js';
 
 const PROJECTS = path.join(process.env.CLAUDE_CONFIG_DIR || path.join(os.homedir(), '.claude'), 'projects');
 
@@ -34,8 +35,34 @@ type Rec = {
   isMeta?: boolean;
   isSidechain?: boolean;
   message?: { role?: string; content?: unknown };
-  toolUseResult?: unknown;
 };
+const isRec = (v: unknown): v is Rec =>
+  typeof v === 'object' && v !== null && typeof (v as { type?: unknown }).type === 'string';
+
+// Content blocks as the API writes them. Only the three kinds we read are
+// spelled out; a block of any other kind is skipped.
+type RawBlock = { type: string } & Record<string, unknown>;
+type TextBlock = { type: 'text'; text: string };
+type ToolUseBlock = { type: 'tool_use'; id: string; name: string; input?: Record<string, unknown> };
+type ResultPart = { type: string; text?: string };
+type ToolResultBlock = {
+  type: 'tool_result';
+  tool_use_id: string;
+  content?: string | ResultPart[];
+  is_error?: boolean;
+};
+const blocksOf = (content: unknown): RawBlock[] =>
+  Array.isArray(content)
+    ? content.filter(
+        (b: unknown): b is RawBlock =>
+          typeof b === 'object' && b !== null && typeof (b as { type?: unknown }).type === 'string'
+      )
+    : [];
+const isText = (b: RawBlock): b is RawBlock & TextBlock => b.type === 'text' && typeof b.text === 'string';
+const isToolUse = (b: RawBlock): b is RawBlock & ToolUseBlock =>
+  b.type === 'tool_use' && typeof b.id === 'string' && typeof b.name === 'string';
+const isToolResult = (b: RawBlock): b is RawBlock & ToolResultBlock =>
+  b.type === 'tool_result' && typeof b.tool_use_id === 'string';
 
 function readRecords(file: string): Rec[] {
   let text: string;
@@ -48,7 +75,8 @@ function readRecords(file: string): Rec[] {
   for (const line of text.split('\n')) {
     if (!line.trim()) continue;
     try {
-      out.push(JSON.parse(line) as Rec);
+      const v: unknown = JSON.parse(line);
+      if (isRec(v)) out.push(v);
     } catch {
       /* half-written last line */
     }
@@ -95,6 +123,9 @@ export type Turn = {
   ctx?: Carried[];
 };
 
+export const textOf = (blocks: Block[]): string[] =>
+  blocks.flatMap((b) => (b.kind === 'text' ? [b.text] : []));
+
 // Collapse the chain into renderable turns. Tool calls stay as compact chips
 // with their result attached; everything that isn't prose or a tool is dropped
 // (thinking, images, system reminders, meta records).
@@ -117,45 +148,37 @@ export function turns(file: string): Turn[] {
           });
         continue;
       }
-      if (!Array.isArray(content)) continue;
       const blocks: Block[] = [];
       const ctx: Carried[] = [];
-      for (const b of content) {
-        if (b?.type === 'text') {
-          const text = cleanUserText(b.text || '');
-          ctx.push(...carried(b.text || ''));
+      for (const b of blocksOf(content)) {
+        if (isText(b)) {
+          const text = cleanUserText(b.text);
+          ctx.push(...carried(b.text));
           if (text) blocks.push({ kind: 'text', text });
-        } else if (b?.type === 'tool_result') {
+        } else if (isToolResult(b)) {
           const t = toolIndex.get(b.tool_use_id);
-          if (t) {
-            const full = resultText(b.content);
-            t.result = full.slice(0, 1200);
-            t.isError = !!b.is_error;
-            // an artifact the session published or edited — show it as a card
-            if (
-              /^mcp__claude-artifacts__(publish_version|publish_files|edit_version|create_from_type)$/.test(
-                t.name
-              )
-            ) {
-              const m = full.match(/\{[\s\S]*\}/);
-              try {
-                const j = m ? JSON.parse(m[0]) : null;
-                if (j && (j.url || j.title))
-                  t.artifact = { title: j.title, url: j.url, slug: j.slug, version: j.version };
-              } catch {
-                /* not json */
-              }
-            }
+          if (!t) continue;
+          const full = resultText(b.content);
+          t.result = full.slice(0, 1200);
+          t.isError = !!b.is_error;
+          // an artifact the session published or edited — show it as a card
+          if (
+            /^mcp__claude-artifacts__(publish_version|publish_files|edit_version|create_from_type)$/.test(
+              t.name
+            )
+          ) {
+            const j = jsonIn(full, ArtifactResult);
+            if (j && (j.url || j.title)) t.artifact = j;
           }
         }
       }
       if (blocks.length) out.push({ role: 'user', uuid: r.uuid!, ts: r.timestamp, blocks, ctx });
     } else if (r.type === 'assistant') {
-      if (!Array.isArray(content)) continue;
       const blocks: Block[] = [];
-      for (const b of content) {
-        if (b?.type === 'text' && b.text?.trim()) blocks.push({ kind: 'text', text: b.text });
-        else if (b?.type === 'tool_use') {
+      for (const b of blocksOf(content)) {
+        if (isText(b)) {
+          if (b.text.trim()) blocks.push({ kind: 'text', text: b.text });
+        } else if (isToolUse(b)) {
           const t: Block & { kind: 'tool' } = {
             kind: 'tool',
             id: b.id,
@@ -176,10 +199,9 @@ export function turns(file: string): Turn[] {
   return out;
 }
 
-function resultText(c: unknown): string {
+function resultText(c: ToolResultBlock['content']): string {
   if (typeof c === 'string') return c;
-  if (Array.isArray(c)) return c.map((b: any) => (b?.type === 'text' ? b.text : '')).join('\n');
-  return '';
+  return (c ?? []).map((b) => (b.type === 'text' ? b.text || '' : '')).join('\n');
 }
 
 // Slash-command echoes, system reminders and pasted-content wrappers are not
@@ -209,37 +231,34 @@ export function carried(s: string): Carried[] {
 export function wholeConversation(file: string, max = 60000): string {
   const lines: string[] = [];
   for (const t of turns(file)) {
-    const text = t.blocks
-      .filter((b) => b.kind === 'text')
-      .map((b) => (b as any).text)
-      .join('\n')
-      .trim();
+    const text = textOf(t.blocks).join('\n').trim();
     if (text) lines.push(`${t.role === 'user' ? 'User' : 'Assistant'}: ${text}`);
   }
   const s = lines.join('\n\n');
   return s.length > max ? s.slice(s.length - max) : s; // keep the newest end
 }
 
-export function toolSummary(name: string, input: any): string {
+export function toolSummary(name: string, input: Record<string, unknown> | undefined): string {
   if (!input) return '';
+  const s = (k: string) => (typeof input[k] === 'string' ? input[k] : '');
   switch (name) {
     case 'Bash':
-      return input.description || (input.command || '').split('\n')[0].slice(0, 120);
+      return s('description') || s('command').split('\n')[0].slice(0, 120);
     case 'Read':
     case 'Write':
     case 'Edit':
     case 'NotebookEdit':
-      return short(input.file_path || input.notebook_path || '');
+      return short(s('file_path') || s('notebook_path'));
     case 'Glob':
     case 'Grep':
-      return input.pattern || '';
+      return s('pattern');
     case 'WebFetch':
     case 'WebSearch':
-      return input.url || input.query || '';
+      return s('url') || s('query');
     case 'Agent':
-      return input.description || '';
+      return s('description');
     case 'Skill':
-      return input.skill || '';
+      return s('skill');
     default: {
       const v = Object.values(input).find((x): x is string => typeof x === 'string');
       return (v || '').slice(0, 120);
@@ -257,11 +276,7 @@ export function lastAssistantText(file: string, max = 6000): string {
   const t = turns(file);
   for (let i = t.length - 1; i >= 0; i--) {
     if (t[i].role !== 'assistant') continue;
-    const text = t[i].blocks
-      .filter((b) => b.kind === 'text')
-      .map((b) => (b as any).text)
-      .join('\n\n')
-      .trim();
+    const text = textOf(t[i].blocks).join('\n\n').trim();
     if (text) return text.length > max ? text.slice(0, max) + '\n…' : text;
   }
   return '';
@@ -270,7 +285,7 @@ export function lastAssistantText(file: string, max = 6000): string {
 export function firstUserText(file: string): string {
   const t = turns(file);
   const u = t.find((x) => x.role === 'user');
-  return u ? (u.blocks.find((b) => b.kind === 'text') as any)?.text || '' : '';
+  return u ? textOf(u.blocks)[0] || '' : '';
 }
 
 // Older answers carried a ```page fence: a picture, and ```page redraw=N to replace page N.
@@ -302,19 +317,6 @@ export type Replay = {
 
 const CANVAS_FENCE = /```canvas[^\n]*\n([\s\S]*?)```/;
 
-// The fence body as a list; a trailing comma is forgiven, anything else unparseable is no ops.
-function parseOps(src: string): any[] {
-  for (const s of [src, src.replace(/,\s*]$/, ']')]) {
-    try {
-      const v: unknown = JSON.parse(s);
-      return Array.isArray(v) ? v : [];
-    } catch {
-      /* try the next */
-    }
-  }
-  return [];
-}
-
 // seed: nodes the canvas starts with (a dive's origin), so updates and links can land on them
 export function replayCanvas(file: string, since = 0, seed: CNode[] = []): Replay {
   const nodes: CNode[] = seed.map((n) => ({ ...n }));
@@ -327,20 +329,12 @@ export function replayCanvas(file: string, since = 0, seed: CNode[] = []): Repla
   for (let i = 0; i < t.length; i++) {
     if (t[i].role !== 'user') continue;
     if (since && t[i].ts && Date.parse(t[i].ts!) / 1000 < since) continue;
-    const q = t[i].blocks
-      .filter((b) => b.kind === 'text')
-      .map((b: any) => b.text)
-      .join(' ')
-      .replace(/\s+/g, ' ')
-      .trim();
+    const q = textOf(t[i].blocks).join(' ').replace(/\s+/g, ' ').trim();
     if (!q) continue;
     said.push({ who: 'you', text: q, key: t[i].uuid });
     const a = t.slice(i + 1).find((x) => x.role === 'assistant');
     if (!a) continue;
-    const full = a.blocks
-      .filter((b) => b.kind === 'text')
-      .map((b: any) => b.text as string)
-      .join('\n\n');
+    const full = textOf(a.blocks).join('\n\n');
     let ops = 0;
     const cm = full.match(CANVAS_FENCE);
     const pm = !cm ? full.match(PAGE_FENCE) : null;
@@ -355,57 +349,62 @@ export function replayCanvas(file: string, since = 0, seed: CNode[] = []): Repla
       .trim();
     const tail = rest || '';
     if (cm) {
-      const list = parseOps(cm[1]);
-      for (const o of list) {
-        if (!o || typeof o !== 'object') continue;
+      for (const o of parseFenceOps(cm[1])) {
         const m = byId();
-        if (o.op === 'add' && o.id) {
-          let id =
-            String(o.id)
-              .replace(/[^a-z0-9-]/gi, '-')
-              .toLowerCase() || 'node';
-          let k = 1;
-          while (m.has(id)) id = `${o.id}-${++k}`;
-          nodes.push({
-            id,
-            kind: o.kind === 'text' ? 'text' : 'pic',
-            q,
-            cap: String(o.cap || '').trim(),
-            art: o.art ? String(o.art) : undefined,
-            text: o.text ? String(o.text) : undefined,
-            from: o.from && m.has(String(o.from)) ? String(o.from) : null,
-            by: t[i].uuid,
-          });
-          ops++;
-        } else if (o.op === 'update' && o.id && m.has(String(o.id))) {
-          const n = m.get(String(o.id))!;
-          if (o.art) n.art = String(o.art);
-          if (o.text) n.text = String(o.text);
-          if (o.cap) n.cap = String(o.cap);
-          if (o.kind === 'text' || o.kind === 'pic') n.kind = o.kind;
-          (n.redrawn = n.redrawn || []).push(q);
-          ops++;
-        } else if (o.op === 'remove' && o.id) {
-          const idx = nodes.findIndex((n) => n.id === String(o.id));
-          if (idx >= 0) {
+        switch (o.op) {
+          case 'add': {
+            const base = o.id.replace(/[^a-z0-9-]/gi, '-').toLowerCase() || 'node';
+            let id = base;
+            for (let k = 2; m.has(id); k++) id = `${base}-${k}`;
+            nodes.push({
+              id,
+              kind: o.kind === 'text' ? 'text' : 'pic',
+              q,
+              cap: (o.cap || '').trim(),
+              art: o.art || undefined,
+              text: o.text || undefined,
+              from: o.from && m.has(o.from) ? o.from : null,
+              by: t[i].uuid,
+            });
+            ops++;
+            break;
+          }
+          case 'update': {
+            const n = m.get(o.id);
+            if (!n) break;
+            if (o.art) n.art = o.art;
+            if (o.text) n.text = o.text;
+            if (o.cap) n.cap = o.cap;
+            if (o.kind === 'text' || o.kind === 'pic') n.kind = o.kind;
+            (n.redrawn = n.redrawn || []).push(q);
+            ops++;
+            break;
+          }
+          case 'remove': {
+            const idx = nodes.findIndex((n) => n.id === o.id);
+            if (idx < 0) break;
             const gone = nodes.splice(idx, 1)[0];
-            for (const n of nodes)
-              if (n.from === gone.id)
-                n.from = o.rewireTo && m.has(String(o.rewireTo)) ? String(o.rewireTo) : null;
+            const rewire = o.rewireTo && m.has(o.rewireTo) ? o.rewireTo : null;
+            for (const n of nodes) if (n.from === gone.id) n.from = rewire;
             for (let j = links.length - 1; j >= 0; j--)
               if (links[j].a === gone.id || links[j].b === gone.id) links.splice(j, 1);
             ops++;
+            break;
           }
-        } else if (o.op === 'link' && o.a && o.b && m.has(String(o.a)) && m.has(String(o.b))) {
-          if (!links.some((l) => (l.a === o.a && l.b === o.b) || (l.a === o.b && l.b === o.a)))
-            links.push({ a: String(o.a), b: String(o.b), lbl: o.lbl ? String(o.lbl) : undefined });
-          ops++;
-        } else if (o.op === 'unlink' && o.a && o.b) {
-          const before = links.length;
-          for (let j = links.length - 1; j >= 0; j--)
-            if ((links[j].a === o.a && links[j].b === o.b) || (links[j].a === o.b && links[j].b === o.a))
-              links.splice(j, 1);
-          if (links.length !== before) ops++;
+          case 'link':
+            if (!m.has(o.a) || !m.has(o.b)) break;
+            if (!links.some((l) => (l.a === o.a && l.b === o.b) || (l.a === o.b && l.b === o.a)))
+              links.push({ a: o.a, b: o.b, lbl: o.lbl || undefined });
+            ops++;
+            break;
+          case 'unlink': {
+            const before = links.length;
+            for (let j = links.length - 1; j >= 0; j--)
+              if ((links[j].a === o.a && links[j].b === o.b) || (links[j].a === o.b && links[j].b === o.a))
+                links.splice(j, 1);
+            if (links.length !== before) ops++;
+            break;
+          }
         }
       }
     } else if (pm) {

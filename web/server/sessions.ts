@@ -3,11 +3,12 @@
 import {
   query,
   type Query,
-  type SDKMessage,
+  type SDKAssistantMessage,
   type PermissionResult,
   type PermissionUpdate,
 } from '@anthropic-ai/claude-agent-sdk';
 import { clearNotify } from './tree.js';
+import type { PermissionReply } from './schemas.js';
 import { RENDER_CONTRACT } from './widgets.js';
 import { execSync } from 'node:child_process';
 import os from 'node:os';
@@ -29,19 +30,27 @@ const CLAUDE_BIN =
 
 export type State = 'idle' | 'busy' | 'waiting' | 'done' | 'error';
 
+// The blocks of an answer the page shows: prose and tool calls, not thinking.
+export type AssistantBlock = Extract<
+  SDKAssistantMessage['message']['content'][number],
+  { type: 'text' } | { type: 'tool_use' }
+>;
+const shown = (b: SDKAssistantMessage['message']['content'][number]): b is AssistantBlock =>
+  b.type === 'text' || b.type === 'tool_use';
+
 export type Event =
   | { type: 'state'; sid: string; state: State }
   | { type: 'user'; sid: string; text: string }
   | { type: 'delta'; sid: string; text: string }
-  | { type: 'assistant'; sid: string; blocks: unknown[] }
+  | { type: 'assistant'; sid: string; blocks: AssistantBlock[] }
   | { type: 'tool_result'; sid: string; toolUseId: string; text: string; isError: boolean }
-  | { type: 'result'; sid: string; ok: boolean; error?: string; costUsd?: number; durationMs?: number }
+  | { type: 'result'; sid: string; ok: boolean; error?: string }
   | {
       type: 'permission';
       sid: string;
       reqId: string;
       tool: string;
-      input: unknown;
+      input: Record<string, unknown>;
       suggestions: PermissionUpdate[];
       canAlways: boolean;
     }
@@ -51,7 +60,7 @@ export type Event =
 type Pending = {
   resolve: (r: PermissionResult) => void;
   tool: string;
-  input: unknown;
+  input: Record<string, unknown>;
   suggestions: PermissionUpdate[];
 };
 
@@ -188,71 +197,55 @@ export async function run(o: RunOpts): Promise<void> {
 
   let ok = false;
   let error: string | undefined;
-  let costUsd: number | undefined;
-  let durationMs: number | undefined;
   try {
-    for await (const m of q as AsyncIterable<SDKMessage>) {
+    for await (const m of q) {
       if (m.type === 'stream_event') {
-        const ev: any = m.event;
+        const ev = m.event;
         if (
-          ev?.type === 'content_block_delta' &&
-          ev.delta?.type === 'text_delta' &&
-          m.parent_tool_use_id === null
-        ) {
+          m.parent_tool_use_id === null &&
+          ev.type === 'content_block_delta' &&
+          ev.delta.type === 'text_delta'
+        )
           emit({ type: 'delta', sid: o.sid, text: ev.delta.text });
-        }
       } else if (m.type === 'assistant') {
         if (m.parent_tool_use_id !== null) continue; // subagent chatter stays out of the pane
-        const blocks = (m.message.content as any[]).filter((b) => b.type === 'text' || b.type === 'tool_use');
+        const blocks = m.message.content.filter(shown);
         if (blocks.length) emit({ type: 'assistant', sid: o.sid, blocks });
       } else if (m.type === 'user') {
         if (m.parent_tool_use_id !== null) continue;
-        const c = (m as any).message?.content;
-        if (Array.isArray(c)) {
-          for (const b of c) {
-            if (b?.type === 'tool_result') {
-              const text =
-                typeof b.content === 'string'
-                  ? b.content
-                  : Array.isArray(b.content)
-                    ? b.content.map((x: any) => (x?.type === 'text' ? x.text : '')).join('\n')
-                    : '';
-              emit({
-                type: 'tool_result',
-                sid: o.sid,
-                toolUseId: b.tool_use_id,
-                text: text.slice(0, 1200),
-                isError: !!b.is_error,
-              });
-            }
-          }
+        const c = m.message.content;
+        if (typeof c === 'string') continue;
+        for (const b of c) {
+          if (b.type !== 'tool_result') continue;
+          const text =
+            typeof b.content === 'string'
+              ? b.content
+              : (b.content ?? []).map((x) => (x.type === 'text' ? x.text : '')).join('\n');
+          emit({
+            type: 'tool_result',
+            sid: o.sid,
+            toolUseId: b.tool_use_id,
+            text: text.slice(0, 1200),
+            isError: !!b.is_error,
+          });
         }
       } else if (m.type === 'result') {
         ok = m.subtype === 'success';
-        costUsd = (m as any).total_cost_usd;
-        durationMs = (m as any).duration_ms;
-        if (!ok) error = (m as any).errors?.join('\n') || m.subtype;
+        if (m.subtype !== 'success') error = m.errors.join('\n') || m.subtype;
       }
     }
-  } catch (e: any) {
-    error = error || e?.message || String(e);
-    emit({ type: 'error', sid: o.sid, message: error! });
+  } catch (e) {
+    error = error || (e instanceof Error ? e.message : String(e));
+    emit({ type: 'error', sid: o.sid, message: error });
   } finally {
     live.delete(o.sid);
     for (const p of pending.values()) p.resolve({ behavior: 'deny', message: 'session ended' });
-    emit({ type: 'result', sid: o.sid, ok, error, costUsd, durationMs });
+    emit({ type: 'result', sid: o.sid, ok, error });
     setState(o.sid, ok ? 'done' : 'error');
   }
 }
 
-export function answerPermission(
-  sid: string,
-  reqId: string,
-  reply:
-    | { kind: 'allow'; always?: boolean }
-    | { kind: 'deny'; message?: string }
-    | { kind: 'answers'; answers: Record<string, string>; response?: string }
-): boolean {
+export function answerPermission(sid: string, reqId: string, reply: PermissionReply): boolean {
   const l = live.get(sid);
   const p = l?.pending.get(reqId);
   if (!p) return false;
@@ -262,7 +255,7 @@ export function answerPermission(
     p.resolve({
       behavior: 'allow',
       updatedInput: {
-        ...(p.input as object),
+        ...p.input,
         answers: reply.answers,
         ...(reply.response ? { response: reply.response } : {}),
       },
@@ -270,11 +263,11 @@ export function answerPermission(
   else
     p.resolve({
       behavior: 'allow',
-      updatedInput: p.input as Record<string, unknown>,
+      updatedInput: p.input,
       ...(reply.always
         ? {
             updatedPermissions: p.suggestions.filter(
-              (s: any) => s.destination === 'localSettings' || s.destination === 'userSettings'
+              (s) => s.destination === 'localSettings' || s.destination === 'userSettings'
             ),
           }
         : {}),
