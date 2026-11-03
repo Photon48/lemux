@@ -252,22 +252,6 @@ function short(p: string): string {
   return p.startsWith(home) ? '~' + p.slice(home.length) : p;
 }
 
-// Files a session wrote — its artifacts. Edits count, reads don't.
-export function artifacts(file: string): string[] {
-  const set = new Set<string>();
-  for (const r of chain(file)) {
-    if (r.type !== 'assistant' || !Array.isArray(r.message?.content)) continue;
-    for (const b of r.message.content) {
-      if (b?.type !== 'tool_use') continue;
-      if (['Write', 'Edit', 'MultiEdit', 'NotebookEdit'].includes(b.name)) {
-        const p = b.input?.file_path || b.input?.notebook_path;
-        if (p) set.add(p);
-      }
-    }
-  }
-  return [...set];
-}
-
 // The last thing Claude said in a session — what an @mention carries over.
 export function lastAssistantText(file: string, max = 6000): string {
   const t = turns(file);
@@ -289,67 +273,8 @@ export function firstUserText(file: string): string {
   return u ? (u.blocks.find((b) => b.kind === 'text') as any)?.text || '' : '';
 }
 
-// ---------- pages ----------
-// A page is what one question produced: the ```page fence (a picture) and the
-// sentence after it. ```page redraw=N replaces page N instead of adding one.
-export type Page = {
-  n: number;
-  key: string;
-  q: string;
-  art: string;
-  caption: string;
-  html: boolean;
-  redrawn?: { by: string; q: string }[];
-};
-
+// Older answers carried a ```page fence: a picture, and ```page redraw=N to replace page N.
 const PAGE_FENCE = /```page(?:[ \t]+redraw=(\d+))?[^\n]*\n([\s\S]*?)```/;
-
-// since: a side quest's transcript starts as a copy of its parent's; pages
-// asked before the branch (by timestamp) belong to the parent, not to it.
-export function pages(
-  file: string,
-  since = 0
-): { pages: Page[]; said: { who: 'you' | 'cc'; text: string; key: string }[] } {
-  const out: Page[] = [];
-  const said: { who: 'you' | 'cc'; text: string; key: string }[] = [];
-  const t = turns(file);
-  for (let i = 0; i < t.length; i++) {
-    if (t[i].role !== 'user') continue;
-    if (since && t[i].ts && Date.parse(t[i].ts!) / 1000 < since) continue;
-    const q = t[i].blocks
-      .filter((b) => b.kind === 'text')
-      .map((b: any) => b.text)
-      .join(' ')
-      .replace(/\s+/g, ' ')
-      .trim();
-    if (!q) continue;
-    said.push({ who: 'you', text: q, key: t[i].uuid });
-    const a = t.slice(i + 1).find((x) => x.role === 'assistant');
-    if (!a) continue;
-    const texts = a.blocks.filter((b) => b.kind === 'text').map((b: any) => b.text as string);
-    const full = texts.join('\n\n');
-    const m = full.match(PAGE_FENCE);
-    // the caption is what cc said after the fence (or its last sentence when there is no fence)
-    const rest = (m ? full.slice(full.indexOf(m[0]) + m[0].length) : full).replace(/\s+/g, ' ').trim();
-    const caption = rest || (m ? '' : (texts[texts.length - 1] || '').replace(/\s+/g, ' ').trim());
-    if (caption) said.push({ who: 'cc', text: caption, key: a.uuid });
-    if (!m) continue;
-    const art = m[2].trim();
-    const html = !/^<svg[\s>]/i.test(art);
-    if (m[1]) {
-      const target = out.find((p) => p.n === Number(m[1]));
-      if (target) {
-        target.art = art;
-        target.caption = caption || target.caption;
-        target.html = html;
-        (target.redrawn = target.redrawn || []).push({ by: t[i].uuid, q });
-        continue;
-      }
-    }
-    out.push({ n: out.length + 1, key: t[i].uuid, q, art, caption, html });
-  }
-  return { pages: out, said };
-}
 
 // ---------- the canvas, replayed from the transcript ----------
 // Every assistant answer may carry a ```canvas fence: a list of operations.
@@ -524,83 +449,6 @@ export function replayCanvas(file: string, since = 0, seed: CNode[] = []): Repla
     turnsOut.push({ key: t[i].uuid, q, ops });
   }
   return { nodes, links, said, turns: turnsOut };
-}
-
-// ---------- claude.ai artifacts ----------
-// What a session made or touched on claude.ai: every claude-artifacts tool
-// call (publish, edit, read, get) plus any claude.ai/artifact link in the
-// conversation. Keyed by slug or URL, whichever the record carries.
-export type Artifact = { key: string; slug?: string; url?: string; title?: string };
-
-const ARTIFACT_TOOL =
-  /^mcp__claude-artifacts__(publish_version|publish_files|edit_version|get_artifact|read_artifact|read_shared_artifact|create_from_type|pin_artifact|watch)$/;
-const LINK = /https:\/\/claude\.ai\/(?:code\/)?artifact\/[A-Za-z0-9_-]+/g;
-
-export function claudeArtifacts(file: string): Artifact[] {
-  const found = new Map<string, Artifact>();
-  const pendingByTool = new Map<string, Artifact>();
-  const put = (a: Artifact) => {
-    // merge on slug or url, whichever already exists
-    let cur = (a.slug && found.get('slug:' + a.slug)) || (a.url && found.get('url:' + a.url)) || undefined;
-    if (!cur) {
-      cur = { key: a.url || a.slug || '' };
-    }
-    if (a.slug) {
-      cur.slug = a.slug;
-      found.set('slug:' + a.slug, cur);
-    }
-    if (a.url) {
-      cur.url = a.url;
-      found.set('url:' + a.url, cur);
-    }
-    if (a.title && !cur.title) cur.title = a.title;
-    if (!cur.key) cur.key = cur.url || cur.slug || '';
-    return cur;
-  };
-  const fromSlugField = (v: unknown): Partial<Artifact> => {
-    if (typeof v !== 'string') return {};
-    return /^https?:/.test(v) ? { url: v.replace(/\/+$/, '') } : { slug: v };
-  };
-  for (const r of chain(file)) {
-    const content = r.message?.content;
-    if (!Array.isArray(content)) continue;
-    for (const b of content) {
-      if (r.type === 'assistant' && b?.type === 'tool_use' && ARTIFACT_TOOL.test(b.name)) {
-        const inp = b.input || {};
-        const a = put({ key: '', ...fromSlugField(inp.slug), title: inp.title || inp.artifact_title });
-        pendingByTool.set(b.id, a);
-      } else if (r.type === 'user' && b?.type === 'tool_result' && pendingByTool.has(b.tool_use_id)) {
-        const text =
-          typeof b.content === 'string'
-            ? b.content
-            : Array.isArray(b.content)
-              ? b.content[0]?.text || ''
-              : '';
-        const m = text.match(/\{[\s\S]*\}/);
-        if (!m) continue;
-        try {
-          const j = JSON.parse(m[0]);
-          const prior = pendingByTool.get(b.tool_use_id)!;
-          const merged = put({
-            key: '',
-            slug: j.slug || prior.slug,
-            url: j.url || prior.url,
-            title: j.title || prior.title,
-          });
-          if (prior !== merged) {
-            prior.key = merged.key;
-          }
-        } catch {
-          /* not json */
-        }
-      } else if (b?.type === 'text' && typeof b.text === 'string') {
-        for (const u of b.text.match(LINK) || []) put({ key: u, url: u });
-      }
-    }
-  }
-  const uniq = new Map<Artifact, true>();
-  for (const a of found.values()) uniq.set(a, true);
-  return [...uniq.keys()].filter((a) => a.url || a.slug);
 }
 
 function listDir(d: string): string[] {

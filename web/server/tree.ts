@@ -46,7 +46,7 @@ export function readTree(): Node[] {
   }
 }
 
-export function writeTree(nodes: Node[]): void {
+function writeTree(nodes: Node[]): void {
   fs.mkdirSync(LEMUX_DIR, { recursive: true });
   const tmp = path.join(LEMUX_DIR, `.tree.${process.pid}.${Date.now()}`);
   fs.writeFileSync(tmp, JSON.stringify(nodes, null, 2) + '\n');
@@ -61,15 +61,6 @@ export function updateTree(fn: (nodes: Node[]) => Node[]): Node[] {
 
 export function getNode(id: string, nodes = readTree()): Node | undefined {
   return nodes.find((n) => n.id === id);
-}
-
-export function rootOf(id: string, nodes = readTree()): string {
-  let cur = id;
-  for (;;) {
-    const n = getNode(cur, nodes);
-    if (!n || !n.parent) return cur;
-    cur = n.parent;
-  }
 }
 
 export function descendants(id: string, nodes = readTree()): string[] {
