@@ -50,6 +50,7 @@ import {
 import * as S from './sessions.js';
 import { brief, topicName } from './name.js';
 import { reminder, canvasEnvelope } from './widgets.js';
+import { expandHome, insideDir } from './paths.js';
 
 const PORT = Number(process.env.PORT || 4321);
 const PROJECTS_FILE = path.join(LEMUX_DIR, 'projects.json');
@@ -78,7 +79,6 @@ function readBody(req: http.IncomingMessage, max = 30_000_000): Promise<unknown>
     req.on('error', reject);
   });
 }
-const expandHome = (p: string) => (p.startsWith('~') ? path.join(os.homedir(), p.slice(1)) : p);
 function extraProjects(): string[] {
   try {
     return ProjectsFile.parse(JSON.parse(fs.readFileSync(PROJECTS_FILE, 'utf8')));
@@ -397,7 +397,7 @@ async function api(req: http.IncomingMessage, res: http.ServerResponse, url: URL
   if (req.method === 'GET' && p === '/api/file') {
     const n = getNode(url.searchParams.get('sid') || '');
     const file = url.searchParams.get('path') || '';
-    if (!n || !file.startsWith(path.join(n.dir, '.lemux', 'files'))) {
+    if (!n || !insideDir(file, path.join(n.dir, '.lemux', 'files'))) {
       res.writeHead(403);
       res.end();
       return;
@@ -678,8 +678,8 @@ const MIME: Record<string, string> = {
 };
 function serveStatic(res: http.ServerResponse, url: URL) {
   const rel = url.pathname === '/' ? '/index.html' : url.pathname;
-  const file = path.join(PUBLIC, path.normalize(rel));
-  if (!file.startsWith(PUBLIC)) {
+  const file = path.join(PUBLIC, rel);
+  if (!insideDir(file, PUBLIC)) {
     res.writeHead(403);
     return res.end();
   }
