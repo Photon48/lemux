@@ -3,6 +3,9 @@
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
+import type { CanvasState } from './canvas.js';
+
+export type { CanvasState, UserNode } from './canvas.js';
 
 export const LEMUX_DIR = process.env.LEMUX_DIR || path.join(os.homedir(), '.lemux');
 const TREE = path.join(LEMUX_DIR, 'tree.json');
@@ -35,28 +38,6 @@ export type Node = {
     parentName: string;
   }; // the node a dive started from
 };
-export type UserNode = {
-  id: string;
-  kind: 'note' | 'img' | 'file';
-  q: string;
-  text?: string;
-  path?: string;
-  x: number;
-  y: number;
-};
-export type CanvasState = {
-  pos: Record<string, { x: number; y: number }>;
-  frames: { id: string; x: number; y: number; w: number; h: number; lbl: string }[];
-  links: { a: string; b: string; lbl?: string }[]; // the person's own links (cc's come from the transcript)
-  unlinks: { a: string; b: string }[]; // cc links the person removed
-  notes: UserNode[];
-  removed: string[]; // cc nodes the person deleted (the taste signal)
-  removedQ: string[]; // their captions, for the reminder
-  folded: string[];
-  aside: string[];
-  history: string[]; // undo stack of JSON snapshots of this state
-};
-
 export function readTree(): Node[] {
   try {
     return JSON.parse(fs.readFileSync(TREE, 'utf8')) as Node[];

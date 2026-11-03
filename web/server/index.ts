@@ -20,9 +20,8 @@ import {
   hookState,
   hookNotify,
   type Node,
-  type CanvasState,
-  type UserNode,
 } from './tree.js';
+import { applyOps, blankCanvas, canvasOf, collapse, type CanvasOp, type Frame } from './canvas.js';
 import {
   sessionFile,
   replayCanvas,
@@ -63,11 +62,6 @@ function readBody(req: http.IncomingMessage, max = 30_000_000): Promise<any> {
     req.on('error', reject);
   });
 }
-const collapse = (s: string) =>
-  s
-    .replace(/[\n\t\r]+/g, ' ')
-    .replace(/ +/g, ' ')
-    .trim();
 const expandHome = (p: string) => (p.startsWith('~') ? path.join(os.homedir(), p.slice(1)) : p);
 function extraProjects(): string[] {
   try {
@@ -101,19 +95,6 @@ function stateOf(id: string): string {
   if (n) return n;
   return hookState(id);
 }
-const blank = (): CanvasState => ({
-  pos: {},
-  frames: [],
-  links: [],
-  unlinks: [],
-  notes: [],
-  removed: [],
-  removedQ: [],
-  folded: [],
-  aside: [],
-  history: [],
-});
-const cstate = (n: Node): CanvasState => ({ ...blank(), ...(n.canvas || {}) });
 function viewNode(n: Node) {
   return {
     id: n.id,
@@ -134,7 +115,7 @@ function taste(dir: string) {
   let removed = 0;
   const last: string[] = [];
   for (const n of readTree().filter((x) => !x.archive && x.dir === dir)) {
-    const c = cstate(n);
+    const c = canvasOf(n.canvas);
     removed += c.removed.length;
     last.push(...c.removedQ);
   }
@@ -162,7 +143,7 @@ function fullCanvas(n: Node) {
   const rep = f
     ? replayCanvas(f, n.parent ? n.created - 5 : 0, seed)
     : { nodes: seed, links: [], said: [], turns: [] };
-  const c = cstate(n);
+  const c = canvasOf(n.canvas);
   const nodes: (CNode & { origin?: boolean })[] = [];
   for (const x of rep.nodes)
     if (!c.removed.includes(x.id)) nodes.push(x.by === 'origin' ? { ...x, origin: true } : x);
@@ -269,7 +250,7 @@ function envelopeFor(
   from: string | null
 ): string {
   const cv = fullCanvas(n);
-  const inside = (f: CanvasState['frames'][0]) =>
+  const inside = (f: Frame) =>
     [...cv.nodes.map((x) => x.id), ...cv.notes.map((m) => m.id)].filter((id) => {
       const p = cv.pos[id];
       return p && p.x > f.x && p.y > f.y && p.x < f.x + f.w && p.y < f.y + f.h;
@@ -354,121 +335,17 @@ async function api(req: http.IncomingMessage, res: http.ServerResponse, url: URL
     const n = getNode(mm[1]);
     if (!n) return json(res, 404, { error: 'unknown session' });
     const b = await readBody(req);
-    const c = cstate(n);
-    const ops: any[] = Array.isArray(b.ops) ? b.ops : [b];
-    const snap = JSON.stringify({ ...c, history: [] });
-    let changed = false;
-    for (const o of ops) {
-      switch (o.op) {
-        case 'move':
-          for (const [id, pt] of Object.entries(o.pos || {}))
-            c.pos[id] = { x: Math.round((pt as any).x), y: Math.round((pt as any).y) };
-          changed = true;
-          break;
-        case 'frame': {
-          const i = c.frames.findIndex((f) => f.id === o.frame.id);
-          const f = {
-            id: String(o.frame.id || randomUUID()),
-            x: Math.round(o.frame.x),
-            y: Math.round(o.frame.y),
-            w: Math.round(o.frame.w),
-            h: Math.round(o.frame.h),
-            lbl: collapse(String(o.frame.lbl || 'section')).slice(0, 60),
-          };
-          if (i >= 0) c.frames[i] = f;
-          else c.frames.push(f);
-          changed = true;
-          break;
-        }
-        case 'unframe':
-          c.frames = c.frames.filter((f) => f.id !== o.id);
-          changed = true;
-          break;
-        case 'link':
-          if (!c.links.some((l) => (l.a === o.a && l.b === o.b) || (l.a === o.b && l.b === o.a))) {
-            c.links.push({
-              a: String(o.a),
-              b: String(o.b),
-              lbl: o.lbl ? collapse(String(o.lbl)).slice(0, 40) : undefined,
-            });
-          }
-          c.unlinks = c.unlinks.filter(
-            (u) => !((u.a === o.a && u.b === o.b) || (u.a === o.b && u.b === o.a))
-          );
-          changed = true;
-          break;
-        case 'unlink':
-          c.links = c.links.filter((l) => !((l.a === o.a && l.b === o.b) || (l.a === o.b && l.b === o.a)));
-          if (!c.unlinks.some((u) => (u.a === o.a && u.b === o.b) || (u.a === o.b && u.b === o.a)))
-            c.unlinks.push({ a: String(o.a), b: String(o.b) });
-          changed = true;
-          break;
-        case 'note': {
-          const i = c.notes.findIndex((x) => x.id === o.note.id);
-          const u: UserNode = {
-            id: String(o.note.id || 'u-' + randomUUID().slice(0, 8)),
-            kind: ['note', 'img', 'file'].includes(o.note.kind) ? o.note.kind : 'note',
-            q: collapse(String(o.note.q || 'Untitled note')).slice(0, 80),
-            text: o.note.text != null ? String(o.note.text).slice(0, 4000) : i >= 0 ? c.notes[i].text : '',
-            path: o.note.path || (i >= 0 ? c.notes[i].path : undefined),
-            x: Math.round(o.note.x ?? (i >= 0 ? c.notes[i].x : 60)),
-            y: Math.round(o.note.y ?? (i >= 0 ? c.notes[i].y : 60)),
-          };
-          if (i >= 0) c.notes[i] = u;
-          else c.notes.push(u);
-          changed = true;
-          break;
-        }
-        case 'unnote':
-          c.notes = c.notes.filter((x) => x.id !== o.id);
-          changed = true;
-          break;
-        case 'remove': {
-          for (const id of o.ids || [o.id]) {
-            if (c.notes.some((x) => x.id === id)) {
-              c.notes = c.notes.filter((x) => x.id !== id);
-              continue;
-            }
-            if (!c.removed.includes(id)) {
-              c.removed.push(id);
-              if (o.q) c.removedQ.push(String(o.q).slice(0, 60));
-            }
-          }
-          c.removedQ = c.removedQ.slice(-10);
-          changed = true;
-          break;
-        }
-        case 'restore':
-          c.removed = c.removed.filter((id) => id !== o.id);
-          changed = true;
-          break;
-        case 'fold':
-          c.folded = o.on ? [...new Set([...c.folded, o.id])] : c.folded.filter((id) => id !== o.id);
-          changed = true;
-          break;
-        case 'aside':
-          c.aside = o.on ? [...new Set([...c.aside, o.id])] : c.aside.filter((id) => id !== o.id);
-          changed = true;
-          break;
-        case 'undo': {
-          const prev = c.history.pop();
-          if (prev) {
-            const restored = JSON.parse(prev);
-            Object.assign(c, restored, { history: c.history });
-            patchNode(n.id, { canvas: c });
-            broadcast({ type: 'canvas', sid: n.id });
-            return json(res, 200, { ok: true, undone: true });
-          }
-          return json(res, 200, { ok: false });
-        }
+    const ops = (Array.isArray(b.ops) ? b.ops : [b]) as CanvasOp[];
+    const r = applyOps(canvasOf(n.canvas), ops, { noHistory: !!b.noHistory, newId: randomUUID });
+    if (r.undone !== undefined) {
+      if (r.undone) {
+        patchNode(n.id, { canvas: r.state });
+        broadcast({ type: 'canvas', sid: n.id });
       }
+      return json(res, 200, { ok: r.undone, undone: r.undone });
     }
-    if (changed) {
-      if (!b.noHistory) {
-        c.history.push(snap);
-        if (c.history.length > 40) c.history.shift();
-      }
-      patchNode(n.id, { canvas: c });
+    if (r.changed) {
+      patchNode(n.id, { canvas: r.state });
       broadcast({ type: 'canvas', sid: n.id, quiet: !!b.quiet });
     }
     return json(res, 200, { ok: true });
@@ -604,7 +481,7 @@ async function api(req: http.IncomingMessage, res: http.ServerResponse, url: URL
       window: '',
       pane: '',
       origin,
-      canvas: { ...blank(), pos: { [src.id]: { x: 60, y: 60 } } },
+      canvas: { ...blankCanvas(), pos: { [src.id]: { x: 60, y: 60 } } },
     });
     const chain: string[] = [];
     for (let cur: Node | undefined = parent; cur; cur = cur.parent ? getNode(cur.parent) : undefined)
@@ -757,7 +634,7 @@ function placeNew(sid: string) {
   const pl = pendingPlace.get(sid);
   pendingPlace.delete(sid);
   const cv = fullCanvas(n);
-  const c = cstate(n);
+  const c = canvasOf(n.canvas);
   let changed = false;
   const fresh = cv.nodes.filter((x) => !c.pos[x.id]);
   fresh.forEach((x, i) => {
