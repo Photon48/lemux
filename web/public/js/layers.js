@@ -20,11 +20,33 @@ export async function loadProjects() {
 $('#project').onchange = async (e) => {
   const v = e.target.value;
   if (v === '__open__') {
-    const dir = window.prompt
-      ? prompt('Folder to open as a project (absolute path or ~/…):', state.home + '/')
-      : null;
     e.target.value = state.project || '__open__';
-    if (!dir) return;
+    openFolder();
+    return;
+  }
+  await switchProject(v);
+};
+
+// Open a folder as a project: an input in the shelf, named in place.
+function openFolder() {
+  $('.openfolder')?.remove();
+  const inp = h('input', { class: 'rename-input', value: state.home + '/', spellcheck: 'false' });
+  const row = h(
+    'div',
+    { class: 'openfolder' },
+    h('div', { class: 'hint' }, 'Folder to open · a path, or ~/…'),
+    inp
+  );
+  $('#layers').before(row);
+  inp.focus();
+  inp.setSelectionRange(inp.value.length, inp.value.length);
+  let done = false;
+  const finish = async (open) => {
+    if (done) return;
+    done = true;
+    const dir = inp.value.trim();
+    row.remove();
+    if (!open || !dir) return;
     try {
       const r = await api('/api/projects', { dir });
       await loadProjects();
@@ -32,10 +54,14 @@ $('#project').onchange = async (e) => {
     } catch (err) {
       toast(err.message);
     }
-    return;
-  }
-  await switchProject(v);
-};
+  };
+  inp.onkeydown = (e) => {
+    if (e.key === 'Enter') finish(true);
+    if (e.key === 'Escape') finish(false);
+    e.stopPropagation();
+  };
+  inp.onblur = () => finish(false);
+}
 
 export async function switchProject(dir) {
   state.project = dir;
@@ -132,7 +158,7 @@ export function renderLayers() {
               : 'take this canvas off the shelf (its transcript stays)',
             onclick: (e) => {
               e.stopPropagation();
-              del(n, !d);
+              confirmDelete(row, n, !d);
             },
           },
           '✕'
@@ -239,15 +265,57 @@ function renameInline(row, n) {
   input.addEventListener('click', (e) => e.stopPropagation());
 }
 
-async function del(n, isRoot) {
-  if (
-    !confirm(
-      isRoot
-        ? `Take “${n.name}” off the shelf? Its dives are deleted; its own transcript stays on disk.`
-        : `Delete “${n.name}” and every dive under it?`
+// Delete asks in place: the row's actions become the question and its answers.
+function confirmDelete(row, n, isRoot) {
+  const acts = $('.acts', row);
+  acts.classList.add('asking');
+  acts.replaceChildren(
+    h(
+      'span',
+      {
+        class: 'ask-del',
+        title: isRoot
+          ? 'Its dives are deleted; its own transcript stays on disk.'
+          : 'Everything under it goes too.',
+      },
+      isRoot ? 'Off the shelf?' : 'Delete it and its dives?'
+    ),
+    h(
+      'button',
+      {
+        class: 'yes',
+        onclick: (e) => {
+          e.stopPropagation();
+          del(n);
+        },
+      },
+      'Delete'
+    ),
+    h(
+      'button',
+      {
+        onclick: (e) => {
+          e.stopPropagation();
+          renderLayers();
+        },
+      },
+      'No'
     )
-  )
-    return;
+  );
+  setTimeout(
+    () =>
+      document.addEventListener(
+        'mousedown',
+        (e) => {
+          if (!acts.contains(e.target)) renderLayers();
+        },
+        { once: true }
+      ),
+    0
+  );
+}
+
+async function del(n) {
   try {
     await api('/api/delete', { id: n.id });
   } catch (e) {
