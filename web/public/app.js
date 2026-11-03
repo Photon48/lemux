@@ -2054,6 +2054,11 @@
         loadCanvas().then(() => {
           if (!before || !state.cv) return;
           const after = state.cv;
+          const added = after.nodes.filter((n) => !before.ids.has(n.id));
+          const removed = [...before.ids].filter((id) => !after.nodes.some((n) => n.id === id));
+          const changed = after.nodes.filter(
+            (n) => before.ids.has(n.id) && (n.redrawn || []).length > (before.redrawn[n.id] || 0)
+          );
           if (landing && added.length) {
             const pos = {};
             added.forEach((n, i) => {
@@ -2063,10 +2068,6 @@
             userOp({ op: 'move', pos }, true);
             renderNodes();
           }
-          ((removed = [...before.ids].filter((id) => !after.nodes.some((n) => n.id === id))),
-            (changed = after.nodes.filter(
-              (n) => before.ids.has(n.id) && (n.redrawn || []).length > (before.redrawn[n.id] || 0)
-            )));
           const linked = after.links.length - before.links;
           const parts = [];
           if (added.length) parts.push(`added ${added.length}`);
