@@ -1,0 +1,270 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>lemux living dashboard</title>
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;500;600&family=IBM+Plex+Mono:wght@400;500&display=swap" rel="stylesheet">
+<style>
+:root {
+  /* the session IS a dashboard: a story rail of questions on the left of the board, widgets that each question adds or changes, a version scrubber to replay how it grew */
+  --bg: #f3f5f7; --panel: #ffffff; --line: #dde3e8; --ink: #16202a; --ink-2: #5b6b7a; --ink-3: #8b99a6;
+  --accent: #0e6f6b; --accent-soft: #e0f0ee; --mark: #ffe9a8; --mark-ink: #6b4d00;
+  --ok: #2e8b57; --ok-soft: #e3f3ea; --warn: #c98a12; --warn-soft: #fff3d6; --bad: #c4433a; --bad-soft: #fbe4e2;
+  --body: "IBM Plex Sans", -apple-system, "Segoe UI", sans-serif; --mono: "IBM Plex Mono", ui-monospace, Menlo, monospace;
+  color-scheme: light;
+}
+@media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) {
+  --bg: #11161b; --panel: #171e25; --line: #2a343e; --ink: #e6ebf0; --ink-2: #94a3b3; --ink-3: #6c7a88;
+  --accent: #5fc9c2; --accent-soft: #163a38; --mark: #4a3b0f; --mark-ink: #ffd978;
+  --ok: #5fcf8f; --ok-soft: #173627; --warn: #f2b84b; --warn-soft: #3d2f10; --bad: #f08a82; --bad-soft: #3f1a18; color-scheme: dark; } }
+:root[data-theme="dark"] {
+  --bg: #11161b; --panel: #171e25; --line: #2a343e; --ink: #e6ebf0; --ink-2: #94a3b3; --ink-3: #6c7a88;
+  --accent: #5fc9c2; --accent-soft: #163a38; --mark: #4a3b0f; --mark-ink: #ffd978;
+  --ok: #5fcf8f; --ok-soft: #173627; --warn: #f2b84b; --warn-soft: #3d2f10; --bad: #f08a82; --bad-soft: #3f1a18; color-scheme: dark; }
+
+* { box-sizing: border-box; }
+html, body { height: 100%; margin: 0; }
+body { font: 14px/1.5 var(--body); color: var(--ink); background: var(--bg); }
+button { font: inherit; color: inherit; cursor: pointer; background: none; border: 0; padding: 0; }
+button:focus-visible, a:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+a { color: var(--accent); }
+.app { display: grid; grid-template-columns: 250px 1fr; height: 100%; }
+
+/* sidebar, as in the one view */
+.side { background: var(--panel); border-right: 1px solid var(--line); display: flex; flex-direction: column; min-height: 0; }
+.side-head { display: flex; align-items: center; gap: 8px; padding: 10px 12px; border-bottom: 1px solid var(--line); }
+.brand { font-weight: 600; }
+.project { flex: 1; display: flex; justify-content: space-between; border: 1px solid var(--line); border-radius: 7px; padding: 4px 8px; font-size: 13px; }
+.sec { padding: 10px 12px; }
+.sec h2 { margin: 0 0 6px; font: 600 11px/1 var(--body); letter-spacing: .08em; text-transform: uppercase; color: var(--ink-2); }
+.row { display: flex; align-items: center; gap: 6px; padding: 4px 6px; border-radius: 6px; cursor: pointer; }
+.row.cur { background: var(--accent-soft); color: var(--accent); font-weight: 500; }
+.row .dot { width: 7px; height: 7px; border-radius: 50%; border: 1px solid var(--line); }
+.row .dot.busy { background: var(--accent); border-color: var(--accent); }
+.row.root { font-weight: 600; }
+.kids { margin-left: 12px; padding-left: 8px; border-left: 1px solid var(--line); }
+.note { font-size: 12px; color: var(--ink-2); padding: 0 12px 12px; margin-top: auto; }
+.note b { color: var(--ink); }
+
+/* main */
+.main { display: flex; flex-direction: column; min-height: 0; min-width: 0; }
+.nav { display: flex; align-items: center; gap: 10px; padding: 8px 14px; background: var(--panel); border-bottom: 1px solid var(--line); }
+.crumbs { display: flex; gap: 6px; align-items: center; flex: 1; min-width: 0; white-space: nowrap; }
+.crumbs a { color: var(--ink-2); text-decoration: none; } .crumbs .sep { color: var(--line); } .crumbs .here { font-weight: 600; }
+.pill { display: inline-flex; align-items: center; gap: 6px; padding: 2px 9px; border-radius: 999px; font-size: 12px; border: 1px solid var(--line); color: var(--ink-2); white-space: nowrap; text-decoration: none; }
+.pill.art { border-color: var(--accent); color: var(--accent); }
+.pill .dot { width: 7px; height: 7px; border-radius: 50%; background: var(--accent); }
+
+/* the board */
+.board { flex: 1; display: grid; grid-template-columns: 220px 1fr; min-height: 0; }
+.rail { border-right: 1px solid var(--line); background: var(--panel); overflow: auto; padding: 14px 12px; }
+.rail h2 { margin: 0 0 10px; font: 600 11px/1 var(--body); letter-spacing: .08em; text-transform: uppercase; color: var(--ink-2); }
+.ch { position: relative; padding: 6px 8px 10px 18px; border-left: 2px solid var(--line); cursor: pointer; }
+.ch::before { content: ""; position: absolute; left: -6px; top: 12px; width: 10px; height: 10px; border-radius: 50%; background: var(--panel); border: 2px solid var(--line); }
+.ch.on { border-color: var(--accent); } .ch.on::before { border-color: var(--accent); background: var(--accent); }
+.ch.hid { opacity: .4; }
+.ch .q { font-size: 13px; line-height: 1.35; }
+.ch .m { font-size: 11.5px; color: var(--ink-3); margin-top: 3px; }
+.ch .m b { color: var(--accent); font-weight: 500; }
+.ch.live .m b { color: var(--mark-ink); }
+.grid { overflow: auto; padding: 16px; }
+.grid-in { display: grid; grid-template-columns: repeat(12, 1fr); gap: 12px; max-width: 1100px; }
+.wg { background: var(--panel); border: 1px solid var(--line); border-radius: 12px; padding: 12px 14px; min-width: 0; position: relative; transition: opacity .25s, box-shadow .25s; }
+.wg.c4 { grid-column: span 4; } .wg.c6 { grid-column: span 6; } .wg.c8 { grid-column: span 8; } .wg.c12 { grid-column: span 12; }
+.wg.hid { display: none; }
+.wg.dim { opacity: .45; }
+.wg.new { box-shadow: 0 0 0 2px var(--accent); }
+.wg.upd { box-shadow: 0 0 0 2px var(--mark-ink); }
+.wg h3 { margin: 0 0 8px; font-size: 13px; font-weight: 600; display: flex; align-items: center; gap: 8px; }
+.wg h3 .tag { font-size: 11px; font-weight: 500; padding: 0 7px; border-radius: 999px; background: var(--accent-soft); color: var(--accent); }
+.wg h3 .tag.upd { background: var(--mark); color: var(--mark-ink); }
+.wg .by { position: absolute; right: 12px; top: 12px; font-size: 11px; color: var(--ink-3); }
+.stats { display: grid; grid-template-columns: repeat(auto-fit, minmax(110px, 1fr)); gap: 8px; }
+.stat { background: var(--bg); border: 1px solid var(--line); border-radius: 9px; padding: 8px 10px; }
+.stat .n { font-size: 20px; font-weight: 600; line-height: 1.15; font-variant-numeric: tabular-nums; }
+.stat .l { font-size: 12px; color: var(--ink-2); }
+.stat .d { font-size: 11.5px; color: var(--mark-ink); margin-top: 4px; }
+table.compare { border-collapse: collapse; width: 100%; font-size: 12.5px; }
+table.compare th, table.compare td { padding: 5px 8px; text-align: left; border-bottom: 1px solid var(--line); }
+table.compare thead th { color: var(--ink-2); font-weight: 500; }
+td.good { background: var(--ok-soft); } td.warn { background: var(--warn-soft); } td.bad { background: var(--bad-soft); }
+ol.flow { list-style: none; counter-reset: s; margin: 0; padding: 0; display: flex; flex-wrap: wrap; gap: 6px; }
+ol.flow li { counter-increment: s; display: flex; align-items: center; gap: 6px; background: var(--bg); border: 1px solid var(--line); border-radius: 999px; padding: 3px 10px 3px 5px; font-size: 12.5px; }
+ol.flow li::before { content: counter(s); width: 18px; height: 18px; border-radius: 50%; background: var(--accent); color: #fff; font-size: 11px; display: grid; place-items: center; }
+.callout { border-left: 3px solid var(--warn); background: var(--warn-soft); border-radius: 8px; padding: 8px 10px; font-size: 13px; }
+.bars { display: grid; gap: 6px; font-size: 12.5px; }
+.bar { display: grid; grid-template-columns: 120px 1fr 60px; align-items: center; gap: 8px; }
+.bar i { display: block; height: 10px; border-radius: 5px; background: var(--accent); }
+.bar b { font-weight: 500; text-align: right; font-variant-numeric: tabular-nums; }
+svg text { font-family: var(--body); fill: var(--ink-2); font-size: 11px; }
+.cap { font-size: 12.5px; color: var(--ink-2); margin-top: 8px; }
+mark { background: var(--mark); color: inherit; padding: 0 2px; border-radius: 3px; }
+.wg { cursor: pointer; }
+.wg:hover { border-color: var(--ink-3); }
+.wg.sel { border-color: var(--mark-ink); box-shadow: 0 0 0 2px var(--mark); }
+.wg.sel::after { content: "selected"; position: absolute; right: 12px; bottom: 10px; font-size: 11px; color: var(--mark-ink); background: var(--mark); border-radius: 999px; padding: 0 7px; }
+.wg .pick { position: absolute; left: 10px; top: 10px; width: 16px; height: 16px; border-radius: 4px; border: 1.5px solid var(--line); background: var(--panel); opacity: 0; transition: opacity .15s; display: grid; place-items: center; font-size: 11px; color: #fff; }
+.wg:hover .pick, .wg.sel .pick { opacity: 1; }
+.wg.sel .pick { background: var(--mark-ink); border-color: var(--mark-ink); }
+.wg h3 { padding-left: 22px; }
+.door { display: inline-flex; align-items: center; gap: 4px; padding: 0 7px; border-radius: 999px; font-size: 11px; background: var(--mark); color: var(--mark-ink); font-weight: 500; cursor: pointer; border: 1px solid transparent; }
+.door:hover { border-color: var(--mark-ink); }
+.door .d { width: 6px; height: 6px; border-radius: 50%; background: var(--ok); }
+.doors { display: flex; gap: 6px; flex-wrap: wrap; margin-top: 8px; }
+.actbar { position: fixed; left: 50%; transform: translateX(-50%); bottom: 150px; z-index: 9; display: flex; align-items: center; gap: 6px; background: var(--ink); color: var(--bg); border-radius: 10px; padding: 6px 8px 6px 12px; box-shadow: 0 10px 30px rgba(0,0,0,.25); font-size: 13px; }
+.actbar.hid { display: none; }
+.actbar b { font-weight: 600; max-width: 260px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.actbar button { border-radius: 7px; padding: 4px 10px; color: var(--bg); border: 1px solid rgba(255,255,255,.25); }
+.actbar button.primary { background: var(--accent); border-color: var(--accent); color: #fff; }
+.actbar button.x { border: 0; opacity: .7; }
+.compose .scope { display: inline-flex; align-items: center; gap: 4px; background: var(--mark); color: var(--mark-ink); border-radius: 6px; padding: 0 7px; font-size: 12.5px; font-weight: 500; white-space: nowrap; }
+.compose .scope button { opacity: .7; }
+.toast { position: fixed; left: 50%; bottom: 150px; transform: translateX(-50%); background: var(--ink); color: var(--bg); padding: 6px 12px; border-radius: 8px; font-size: 13px; opacity: 0; transition: opacity .2s; pointer-events: none; z-index: 9; }
+.toast.on { opacity: 1; }
+
+/* bottom: scrubber + composer */
+.foot { border-top: 1px solid var(--line); background: var(--panel); padding: 8px 14px 12px; }
+.scrub { display: flex; align-items: center; gap: 10px; font-size: 12px; color: var(--ink-2); margin-bottom: 8px; }
+.scrub .vs { display: inline-flex; border: 1px solid var(--line); border-radius: 7px; overflow: hidden; }
+.scrub .vs button { padding: 2px 10px; border-right: 1px solid var(--line); color: var(--ink-2); font-size: 12px; }
+.scrub .vs button:last-child { border-right: 0; }
+.scrub .vs button.on { background: var(--accent-soft); color: var(--accent); }
+.scrub .last { margin-left: auto; }
+.compose { display: flex; align-items: center; gap: 8px; border: 1px solid var(--line); border-radius: 10px; padding: 8px 10px; }
+.compose .in { flex: 1; color: var(--ink-3); }
+.compose .in .chip { background: var(--accent-soft); color: var(--accent); border-radius: 6px; padding: 0 6px; font-weight: 500; }
+.compose .send { background: var(--accent); color: #fff; border-radius: 7px; padding: 4px 12px; font-size: 13px; }
+.legend { position: fixed; right: 14px; bottom: 120px; width: 240px; font-size: 12px; color: var(--ink-2); background: var(--panel); border: 1px solid var(--line); border-radius: 10px; padding: 10px 12px; }
+.legend b { color: var(--ink); } .legend ol { padding-left: 16px; margin: 6px 0 0; }
+@media (max-width: 900px) { .app { grid-template-columns: 1fr; } .side, .legend { display: none; } .board { grid-template-columns: 1fr; } .rail { display: none; } }
+</style>
+</head>
+<body>
+<div class="app">
+  <aside class="side">
+    <div class="side-head"><span class="brand">lemux</span><div class="project"><span>Boat &amp; Plane</span><span>▾</span></div></div>
+    <div class="sec"><h2>Sessions</h2>
+      <div class="row root"><span class="dot"></span>Plane</div>
+      <div class="kids"><div class="row"><span class="dot"></span>wings</div><div class="kids"><div class="row"><span class="dot"></span>Fuel Tank</div></div></div>
+      <div class="row root cur"><span class="dot busy"></span>Boat</div>
+      <div class="kids"><div class="row"><span class="dot"></span>Buoyancy</div><div class="row"><span class="dot"></span>propeller</div></div>
+    </div>
+    <div class="note"><b>What changed in this view.</b> There is no transcript. The session's dashboard is the window; your questions are its chapters. cc's reply is the next state of the board, published as this session's claude.ai artifact.</div>
+  </aside>
+  <main class="main">
+    <div class="nav">
+      <div class="crumbs"><a href="#">Boat &amp; Plane</a><span class="sep">›</span><span class="here">Boat</span></div>
+      <span class="pill"><span class="dot"></span>working on chapter 4</span>
+      <a class="pill art" href="#">open on claude.ai ↗</a>
+    </div>
+    <div class="board">
+      <div class="rail">
+        <h2>Story</h2>
+        <div class="ch" data-v="1"><div class="q">Design a 5 m aluminium fishing boat.</div><div class="m"><b>+3 widgets</b> · hull, specs, decisions</div></div>
+        <div class="ch" data-v="2"><div class="q">Why not use <mark>@Fuel Tank</mark> in a boat?</div><div class="m"><b>+1 widget</b> · 1 updated</div></div>
+        <div class="ch" data-v="3"><div class="q">What does it cost to build?</div><div class="m"><b>+1 widget</b> · 2 updated</div></div>
+        <div class="ch live" data-v="4"><div class="q">Can one person launch it alone?</div><div class="m"><b>drawing…</b></div></div>
+      </div>
+      <div class="grid"><div class="grid-in" id="g">
+        <div class="wg c8" data-v="1" data-id="hull"><span class="pick">✓</span><span class="by">ch 1</span><h3>Hull profile</h3>
+          <svg viewBox="0 0 520 120" width="100%" role="img" aria-label="side view of a 5 m hull with the waterline at 0.35 m draft">
+            <path d="M20,70 C80,20 420,15 500,55 L500,80 C420,100 120,105 30,85 Z" fill="none" stroke="currentColor" stroke-width="1.5" style="color:var(--ink)"/>
+            <line x1="10" y1="78" x2="510" y2="78" stroke="var(--accent)" stroke-dasharray="4 3"/>
+            <text x="14" y="112">5.0 m LOA</text><text x="420" y="112">beam 2.1 m</text><text x="200" y="74" style="fill:var(--accent)">waterline · draft 0.35 m</text>
+          </svg></div>
+        <div class="wg c4" data-v="1" data-upd="2 3" data-id="specs"><span class="pick">✓</span><span class="by">ch 1 · ch 3</span><h3>Specs <span class="tag upd" data-show="3">updated ch 3</span></h3>
+          <div class="stats">
+            <div class="stat"><div class="n">5.0 m</div><div class="l">length</div></div>
+            <div class="stat"><div class="n">2.1 m</div><div class="l">beam</div></div>
+            <div class="stat"><div class="n" data-v3="410 kg" data-v1="380 kg">380 kg</div><div class="l">dry mass</div><div class="d" data-show="3">+30 kg: sealed chambers</div></div>
+            <div class="stat"><div class="n">40 hp</div><div class="l">outboard</div></div>
+          </div></div>
+        <div class="wg c12" data-v="1" data-id="decisions"><span class="pick">✓</span><span class="by">ch 1</span><h3>Decisions so far</h3>
+          <ol class="flow"><li>Flat-bottom, 4 mm plate</li><li>Welded, not riveted</li><li>Tiller outboard</li><li data-show="2">Chambers double as fuel</li></ol></div>
+        <div class="wg c6" data-v="2" data-id="chambers"><span class="pick">✓</span><span class="by">ch 2 · from @Fuel Tank</span><h3>Buoyancy chambers as tanks <span class="tag" data-show="2">new</span></h3>
+          <table class="compare"><thead><tr><th></th><th>Separate tank</th><th>Sealed chamber</th></tr></thead><tbody>
+            <tr><td>Mass</td><td class="warn">+18 kg</td><td class="good">+0 kg</td></tr>
+            <tr><td>Sealing</td><td class="good">off the shelf</td><td class="warn">marine-grade welds</td></tr>
+            <tr><td>Reserve buoyancy</td><td class="good">untouched</td><td class="bad">lost when full</td></tr>
+          </tbody></table>
+          <div class="cap">What the plane trick does and does not carry over to a hull.</div><div class="doors"><span class="door" title="side quest branched from this widget"><span class="d"></span>↗ Buoyancy</span></div></div>
+        <div class="wg c6" data-v="3" data-id="cost"><span class="pick">✓</span><span class="by">ch 3</span><h3>Build cost <span class="tag" data-show="3">new</span></h3>
+          <div class="bars">
+            <div class="bar"><span>Aluminium plate</span><i style="width:70%"></i><b>$2,100</b></div>
+            <div class="bar"><span>Outboard, 40 hp</span><i style="width:100%"></i><b>$3,000</b></div>
+            <div class="bar"><span>Welding &amp; gas</span><i style="width:30%"></i><b>$900</b></div>
+            <div class="bar"><span>Fittings, paint</span><i style="width:22%"></i><b>$650</b></div>
+          </div><div class="cap">$6,650 total. The outboard is 45 percent of it.</div></div>
+        <div class="wg c6" data-v="4" data-id="launch"><span class="pick">✓</span><span class="by">ch 4</span><h3>Solo launch <span class="tag">drawing…</span></h3>
+          <div class="callout">At 410 kg dry, one person cannot drag this off a trailer. The board is checking winch and roller options now.</div></div>
+      </div></div>
+    </div>
+    <div class="foot">
+      <div class="scrub"><span>Replay</span><span class="vs" id="vs"><button data-v="1">v1</button><button data-v="2">v2</button><button data-v="3">v3</button><button data-v="4" class="on">now</button></span><span id="vtext">4 chapters · 6 widgets</span><span class="last">each version is an artifact version on claude.ai</span></div>
+      <div class="compose"><span id="scopes"></span><span class="in" id="in">Ask, and the board changes — <span class="chip">@Buoyancy</span> brings that session's board along…</span><button class="send">Ask</button></div>
+    </div>
+  </main>
+</div>
+<div class="actbar hid" id="actbar"><span id="actn"></span><b id="actt"></b><button class="primary" id="act-ask">Ask about this</button><button id="act-branch">Branch from this</button><button class="x" id="act-clear">✕</button></div>
+<div class="toast" id="toast"></div>
+<div class="legend"><b>Try it</b><ol><li>Click a widget to select it; shift-click adds another.</li><li>Ask about it, or branch from it: the widget keeps a door.</li><li>v1 → v3 replays how the board grew.</li></ol></div>
+<script>
+const $ = (s) => document.querySelector(s), $$ = (s) => [...document.querySelectorAll(s)];
+let v = 4, focus = null;
+function render() {
+  for (const w of $$('.wg')) {
+    const born = +w.dataset.v, upd = (w.dataset.updated || w.dataset.upd || '').split(' ').filter(Boolean).map(Number);
+    w.classList.toggle('hid', born > v);
+    const isNew = born === v, isUpd = upd.includes(v);
+    w.classList.toggle('new', isNew && (focus == null || focus === v));
+    w.classList.toggle('upd', isUpd && !isNew);
+    w.classList.toggle('dim', focus != null && born !== focus && !upd.includes(focus));
+    for (const t of w.querySelectorAll('[data-show]')) t.style.display = (+t.dataset.show <= v) ? '' : 'none';
+    const n = w.querySelector('[data-v3]'); if (n) n.textContent = v >= 3 ? n.dataset.v3 : n.dataset.v1;
+  }
+  for (const c of $$('.ch')) { c.classList.toggle('on', +c.dataset.v === (focus ?? v)); c.classList.toggle('hid', +c.dataset.v > v); }
+  for (const b of $$('#vs button')) b.classList.toggle('on', +b.dataset.v === v);
+  const shown = $$('.wg').filter((w) => !w.classList.contains('hid')).length;
+  $('#vtext').textContent = `${v} chapter${v > 1 ? 's' : ''} · ${shown} widget${shown > 1 ? 's' : ''}`;
+}
+for (const b of $$('#vs button')) b.onclick = () => { v = +b.dataset.v; focus = null; render(); };
+for (const c of $$('.ch')) c.onclick = () => { const n = +c.dataset.v; if (n > v) v = n; focus = focus === n ? null : n; render(); };
+render();
+
+// ---- widgets are the things you pick ----
+const sel = new Set();
+const titleOf = (w) => w.querySelector('h3').childNodes[0].textContent.trim();
+const toast = (m) => { const t = $('#toast'); t.textContent = m; t.classList.add('on'); clearTimeout(toast.t); toast.t = setTimeout(() => t.classList.remove('on'), 2200); };
+function renderSel() {
+  for (const w of $$('.wg')) w.classList.toggle('sel', sel.has(w.dataset.id));
+  const bar = $('#actbar'); bar.classList.toggle('hid', sel.size === 0);
+  const names = [...sel].map((id) => titleOf($(`.wg[data-id="${id}"]`)));
+  $('#actn').textContent = sel.size > 1 ? `${sel.size} widgets:` : ''; $('#actt').textContent = names.join(' + ');
+  $('#scopes').replaceChildren(...[...sel].map((id) => { const c = document.createElement('span'); c.className = 'scope'; c.innerHTML = `re: ${titleOf($(`.wg[data-id="${id}"]`))} <button title="remove">✕</button>`; c.querySelector('button').onclick = (e) => { e.stopPropagation(); sel.delete(id); renderSel(); }; return c; }));
+  $('#in').textContent = sel.size ? 'What should change here, or what do you want to know?' : '';
+  if (!sel.size) $('#in').innerHTML = 'Ask, and the board changes — <span class="chip">@Buoyancy</span> brings that session\'s board along…';
+}
+for (const w of $$('.wg')) w.addEventListener('click', (e) => {
+  if (e.target.closest('.door')) { toast('→ opens the Buoyancy side quest, this widget stays marked'); return; }
+  if (!e.shiftKey && !e.metaKey) { const only = sel.has(w.dataset.id) && sel.size === 1; sel.clear(); if (!only) sel.add(w.dataset.id); }
+  else sel.has(w.dataset.id) ? sel.delete(w.dataset.id) : sel.add(w.dataset.id);
+  renderSel();
+});
+$('#act-clear').onclick = () => { sel.clear(); renderSel(); };
+$('#act-ask').onclick = () => { toast('your next question is scoped to the selected widget(s); the board evolves them first'); };
+$('#act-branch').onclick = () => {
+  const ids = [...sel]; if (!ids.length) return;
+  for (const id of ids) {
+    const w = $(`.wg[data-id="${id}"]`);
+    let d = w.querySelector('.doors'); if (!d) { d = document.createElement('div'); d.className = 'doors'; w.append(d); }
+    const door = document.createElement('span'); door.className = 'door'; door.innerHTML = '<span class="d" style="background:var(--accent)"></span>↗ new side quest';
+    d.append(door);
+  }
+  const tree = $('.row.cur').nextElementSibling; const r = document.createElement('div'); r.className = 'row'; r.innerHTML = '<span class="dot busy"></span>new side quest'; tree.append(r);
+  sel.clear(); renderSel();
+  toast('side quest opened with those widgets as its starting board; the doors stay here');
+};
+</script>
+</body>
+</html>

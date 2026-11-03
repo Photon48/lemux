@@ -1,0 +1,257 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>lemux workshop</title>
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;500;600&family=IBM+Plex+Serif:ital,wght@0,400;0,600;1,400&family=IBM+Plex+Mono:wght@400;500&display=swap" rel="stylesheet">
+<style>
+:root {
+  /* a workshop at night: the library on the left, the open book in the middle, the conversation folded away at the bottom */
+  --bg: #1a1c1f; --bench: #212429; --bench-2: #292d33; --line: #353a41; --line-2: #454b54;
+  --ink: #ece7df; --ink-2: #a9a399; --ink-3: #716c64;
+  --lamp: #e0a458; --lamp-soft: #3a2f1e;
+  --ok: #6fbf8a; --bad: #d9776b; --sky: #6f9fd8; --sky-soft: #223247;
+  --paper: #25282d;
+  --body: "IBM Plex Sans", -apple-system, "Segoe UI", sans-serif; --serif: "IBM Plex Serif", Georgia, serif; --mono: "IBM Plex Mono", ui-monospace, Menlo, monospace;
+  color-scheme: dark;
+}
+* { box-sizing: border-box; }
+html, body { height: 100%; margin: 0; }
+body { font: 14px/1.5 var(--body); color: var(--ink); background: var(--bg); }
+button { font: inherit; color: inherit; cursor: pointer; background: none; border: 0; padding: 0; }
+button:focus-visible, input:focus-visible { outline: 2px solid var(--lamp); outline-offset: 2px; }
+.app { display: grid; grid-template-columns: 236px 1fr; height: 100%; }
+
+/* ---- the library ---- */
+.lib { background: var(--bench); border-right: 1px solid var(--line); display: flex; flex-direction: column; min-height: 0; }
+.lib-head { padding: 12px 14px 8px; display: flex; align-items: baseline; gap: 8px; border-bottom: 1px solid var(--line); }
+.lib-head b { font: 600 15px var(--serif); }
+.lib-head span { color: var(--ink-3); font-size: 12px; }
+.shelf { padding: 10px 10px 4px; }
+.shelf h2 { margin: 0 0 6px 4px; font: 500 11px/1 var(--body); letter-spacing: .08em; text-transform: uppercase; color: var(--ink-3); display: flex; justify-content: space-between; }
+.shelf h2 button { color: var(--lamp); letter-spacing: 0; text-transform: none; font-size: 12px; }
+.book { display: grid; grid-template-columns: 30px 1fr; gap: 8px; align-items: center; padding: 4px 6px; border-radius: 8px; cursor: pointer; }
+.book:hover { background: var(--bench-2); }
+.book.open { background: var(--lamp-soft); }
+.book .cover { width: 30px; height: 38px; border-radius: 3px 5px 5px 3px; background: var(--paper); border: 1px solid var(--line-2); border-left: 3px solid var(--line-2); display: grid; place-items: center; overflow: hidden; }
+.book.open .cover { border-left-color: var(--lamp); }
+.book .cover svg { width: 24px; height: 24px; }
+.book .t { font: 500 13px var(--body); line-height: 1.25; }
+.book .m { font-size: 11.5px; color: var(--ink-3); }
+.book .m i { display: inline-block; width: 6px; height: 6px; border-radius: 50%; background: var(--lamp); margin-right: 4px; vertical-align: 1px; }
+.book.quest { margin-left: 16px; }
+.book.quest .cover { height: 30px; width: 24px; }
+.loose { display: flex; gap: 6px; flex-wrap: wrap; padding: 0 4px; min-height: 18px; }
+.loose span { font-size: 12px; background: var(--bench-2); border: 1px dashed var(--line-2); border-radius: 6px; padding: 1px 8px; color: var(--ink-2); cursor: pointer; }
+.loose span:hover { border-color: var(--lamp); color: var(--ink); }
+.loose .none { border: 0; background: none; color: var(--ink-3); cursor: default; }
+.librarian { margin-top: auto; padding: 10px 14px 12px; border-top: 1px solid var(--line); font-size: 12px; color: var(--ink-3); }
+.librarian b { color: var(--ink-2); font-weight: 500; }
+
+/* ---- the open book ---- */
+.desk { display: flex; flex-direction: column; min-height: 0; min-width: 0; position: relative; }
+.spine { display: flex; align-items: center; gap: 12px; padding: 10px 22px; border-bottom: 1px solid var(--line); }
+.spine .title { font: 600 17px var(--serif); }
+.spine .ed { font-size: 12px; color: var(--ink-3); }
+.spine .sp { flex: 1; }
+.spine .pin { color: var(--ink-3); font-size: 12.5px; } .spine .pin.on { color: var(--lamp); }
+.spine .back { color: var(--ink-3); font-size: 12.5px; margin-right: 6px; }
+.pages { flex: 1; overflow: auto; padding: 22px 0 140px; }
+.page { max-width: 820px; margin: 0 auto 26px; padding: 0 22px; position: relative; }
+.page .eyebrow { font-size: 12px; color: var(--ink-3); margin: 0 0 8px 2px; display: flex; gap: 8px; align-items: baseline; flex-wrap: wrap; }
+.page .eyebrow .n { font: 500 11px var(--mono); color: var(--lamp); }
+.page .eyebrow q { quotes: "“" "”"; color: var(--ink-2); }
+.page .eyebrow .note { color: var(--lamp); }
+.sheet { background: var(--paper); border: 1px solid var(--line); border-radius: 12px; padding: 18px 20px 14px; position: relative; cursor: pointer; }
+.sheet:hover { border-color: var(--line-2); }
+.sheet.kept { border-color: var(--ok); }
+.sheet.sel { border-color: var(--lamp); box-shadow: 0 0 0 2px var(--lamp-soft); }
+.sheet svg { width: 100%; height: auto; display: block; }
+.sheet svg text { font-family: var(--body); fill: var(--ink-2); font-size: 12px; }
+.sheet svg text.h { fill: var(--ink); font-weight: 600; font-size: 13px; }
+.sheet svg text.k { fill: var(--ink-3); font-size: 11px; }
+.cap { font: 400 15px/1.45 var(--serif); color: var(--ink); margin: 14px 0 0; max-width: 60ch; }
+.cap i { color: var(--ink-2); }
+.acts { position: absolute; right: 12px; top: 10px; display: flex; gap: 2px; opacity: 0; transition: opacity .15s; background: var(--bench); border: 1px solid var(--line-2); border-radius: 8px; padding: 2px; }
+.sheet:hover .acts, .sheet.sel .acts { opacity: 1; }
+.acts button { font-size: 12px; color: var(--ink-2); padding: 3px 8px; border-radius: 6px; }
+.acts button:hover { background: var(--bench-2); color: var(--ink); }
+.acts .keep { color: var(--ok); } .acts .bin { color: var(--bad); }
+.doors { display: flex; gap: 6px; flex-wrap: wrap; margin-top: 10px; }
+.door { display: inline-flex; align-items: center; gap: 5px; font-size: 12px; color: var(--lamp); border: 1px solid var(--lamp); border-radius: 999px; padding: 1px 9px; cursor: pointer; }
+.door i { width: 6px; height: 6px; border-radius: 50%; background: var(--ok); }
+.door i.busy { background: var(--lamp); }
+.page.aside .sheet { border-style: dashed; opacity: .7; }
+.drawing .sheet { border-style: dashed; }
+.drawing .sheet .cap { color: var(--ink-3); }
+.drawing .sheet .cap::after { content: "▍"; color: var(--lamp); animation: p .9s infinite; }
+@keyframes p { 50% { opacity: .2; } }
+.empty { max-width: 820px; margin: 60px auto; padding: 0 22px; color: var(--ink-3); text-align: center; font-size: 13px; }
+
+/* ---- ask bar + conversation drawer (kept tiny) ---- */
+.ask { position: absolute; left: 0; right: 0; bottom: 0; padding: 0 22px 16px; pointer-events: none; }
+.drawer { pointer-events: auto; max-width: 820px; margin: 0 auto 6px; background: var(--bench); border: 1px solid var(--line-2); border-radius: 10px; padding: 8px 12px; font-size: 11.5px; line-height: 1.45; color: var(--ink-3); display: none; max-height: 150px; overflow: auto; }
+.drawer.on { display: block; }
+.drawer p { margin: 0 0 3px; } .drawer b { color: var(--ink-2); font-weight: 500; }
+.chat { pointer-events: auto; max-width: 820px; margin: 0 auto 6px; font-size: 11.5px; display: flex; justify-content: center; }
+.chat button { color: var(--ink-3); }
+.chat button:hover { color: var(--ink-2); }
+.bar { pointer-events: auto; max-width: 820px; margin: 0 auto; display: flex; align-items: center; gap: 10px; background: var(--bench); border: 1px solid var(--line-2); border-radius: 14px; padding: 8px 10px 8px 14px; box-shadow: 0 16px 40px rgba(0,0,0,.4); }
+.bar:focus-within { border-color: var(--lamp); }
+.bar .scope { font-size: 12px; color: var(--lamp); white-space: nowrap; display: none; }
+.bar .scope.on { display: inline-flex; align-items: center; gap: 4px; }
+.bar .scope button { color: var(--ink-3); }
+.bar input { flex: 1; font: inherit; color: var(--ink); background: none; border: 0; outline: none; min-width: 0; }
+.bar input::placeholder { color: var(--ink-3); }
+.bar .mic, .bar .go { width: 32px; height: 32px; border-radius: 50%; display: grid; place-items: center; flex: 0 0 auto; }
+.bar .mic { border: 1px solid var(--line-2); color: var(--ink-2); }
+.bar .go { background: var(--lamp); color: #1a1c1f; font-weight: 600; }
+.toast { position: fixed; left: 50%; bottom: 150px; transform: translateX(-50%); background: var(--ink); color: var(--bg); padding: 6px 12px; border-radius: 8px; font-size: 13px; opacity: 0; transition: opacity .2s; pointer-events: none; z-index: 9; }
+.toast.on { opacity: 1; }
+@media (max-width: 900px) { .app { grid-template-columns: 1fr; } .lib { display: none; } }
+</style>
+</head>
+<body>
+<div class="app">
+  <aside class="lib">
+    <div class="lib-head"><b>Library</b><span>Boat &amp; Plane</span></div>
+    <div class="shelf"><h2>Books <button id="newbook">+ new book</button></h2><div id="books"></div></div>
+    <div class="shelf"><h2>Set aside for later</h2><div class="loose" id="aside"></div></div>
+    <div class="shelf"><h2>Pinned</h2><div class="loose" id="pinned"></div></div>
+    <div class="librarian" id="librarian"></div>
+  </aside>
+  <main class="desk">
+    <div class="spine"><button class="back" id="back" title="back">←</button><span class="title" id="title"></span><span class="ed" id="ed"></span><span class="sp"></span><button class="pin" id="pinbook">☆ pin book</button></div>
+    <div class="pages" id="pages"></div>
+    <div class="ask">
+      <div class="drawer" id="drawer"></div>
+      <div class="chat"><button id="chat-t">conversation ▴</button></div>
+      <div class="bar"><span class="scope" id="scope"></span><input id="in" placeholder="What's on your mind?"><button class="mic" title="speak">●</button><button class="go" id="go" title="ask">→</button></div>
+    </div>
+  </main>
+</div>
+<div class="toast" id="toast"></div>
+
+<script>
+// ---------- a few drawn pages, each one picture + one sentence ----------
+const ART = {
+  wingarea: `<svg viewBox="0 0 760 230"><line x1="40" y1="150" x2="720" y2="150" stroke="#ece7df" stroke-dasharray="5 4" stroke-width="1.5"/><text x="42" y="142" class="h">needed · 11 m²</text><rect x="200" y="86" width="120" height="124" rx="4" fill="#d9776b"/><text x="260" y="78" text-anchor="middle" class="h">7.4 m²</text><text x="260" y="226" text-anchor="middle">TF20, as drawn</text><rect x="390" y="118" width="120" height="92" rx="4" fill="#716c64"/><text x="450" y="110" text-anchor="middle" class="h">9.6 m²</text><text x="450" y="226" text-anchor="middle">span +1.2 m</text><rect x="580" y="14" width="120" height="196" rx="4" fill="#6fbf8a"/><text x="640" y="8" text-anchor="middle" class="h">13.1 m²</text><text x="640" y="226" text-anchor="middle">span +2.6 m, chord +0.2 m</text></svg>`,
+  airfoils: `<svg viewBox="0 0 760 250"><g transform="translate(40,30)"><path d="M0,40 C40,-6 190,-14 300,22 C200,44 60,54 0,40Z" fill="#454b54" stroke="#a9a399"/><text x="0" y="86" class="h">Clark Y · 1.4 m chord</text><text x="0" y="104" class="k">the one to build: gentle stall, flat bottom, easy to jig</text></g><g transform="translate(420,30)"><path d="M0,40 C40,10 200,4 300,30 C200,46 60,52 0,40Z" fill="#2a2d33" stroke="#716c64"/><text x="0" y="86" class="h">NACA 2412 · 1.4 m chord</text><text x="0" y="104" class="k">faster, sharper stall</text></g><g transform="translate(40,160)"><path d="M0,30 C30,10 110,4 170,22 C110,36 40,40 0,30Z" fill="#2a2d33" stroke="#716c64"/><text x="0" y="66" class="h">propeller blade · 15 cm</text></g><g transform="translate(420,160)"><path d="M0,30 C10,28 150,20 300,28 C150,34 10,34 0,30Z" fill="#2a2d33" stroke="#716c64"/><text x="0" y="66" class="h">airliner · 8 m, at this scale it would fill the room</text></g></svg>`,
+  spar: `<svg viewBox="0 0 760 230"><path d="M60,150 C160,40 520,20 700,110 C520,160 200,175 60,150Z" fill="#2a2d33" stroke="#a9a399" stroke-width="1.5"/><rect x="250" y="64" width="150" height="86" fill="#223247" stroke="#6f9fd8"/><path d="M250,64 L250,150 M400,64 L400,150" stroke="#6f9fd8" stroke-width="3"/><text x="325" y="112" text-anchor="middle" class="h">spar box = tank</text><text x="325" y="128" text-anchor="middle" class="k">sealed webs, 86 L per side</text><line x1="325" y1="150" x2="325" y2="200" stroke="#454b54"/><text x="325" y="216" text-anchor="middle">the spars already carry the bending load; sealing the bay costs 1.8 kg of sealant and no tank</text></svg>`,
+  sequence: `<svg viewBox="0 0 760 120"><g><rect x="30" y="40" width="130" height="40" rx="20" fill="#2a2d33" stroke="#716c64"/><text x="95" y="65" text-anchor="middle">jig the spars</text><path d="M160,60 L205,60" stroke="#716c64"/><rect x="205" y="40" width="130" height="40" rx="20" fill="#2a2d33" stroke="#716c64"/><text x="270" y="65" text-anchor="middle">ribs on, seal bay</text><path d="M335,60 L380,60" stroke="#716c64"/><rect x="380" y="40" width="130" height="40" rx="20" fill="#3a2f1e" stroke="#e0a458"/><text x="445" y="65" text-anchor="middle" fill="#e0a458">pressure test</text><path d="M510,60 L555,60" stroke="#716c64"/><rect x="555" y="40" width="170" height="40" rx="20" fill="#2a2d33" stroke="#716c64"/><text x="640" y="65" text-anchor="middle">skin, then mate to fuselage</text></g></svg>`,
+  hull: `<svg viewBox="0 0 760 200"><path d="M40,110 C120,40 600,30 720,90 L720,125 C600,160 180,170 60,140 Z" fill="#2a2d33" stroke="#ece7df" stroke-width="1.5"/><line x1="20" y1="120" x2="740" y2="120" stroke="#6f9fd8" stroke-dasharray="4 3"/><text x="300" y="114" fill="#6f9fd8">waterline · draft 0.35 m</text><text x="30" y="190">5.0 m overall</text><text x="600" y="190">beam 2.1 m</text><text x="40" y="30" class="h">flat bottom, 4 mm plate</text></svg>`,
+  chambers: `<svg viewBox="0 0 760 220"><g transform="translate(30,20)"><path d="M0,120 C40,160 280,160 320,120 L320,20 L0,20Z" fill="#2a2d33" stroke="#a9a399"/><rect x="20" y="40" width="90" height="60" rx="6" fill="#3a2f1e" stroke="#e0a458"/><text x="65" y="75" text-anchor="middle" fill="#e0a458">tank +18 kg</text><rect x="130" y="40" width="170" height="90" fill="#223247" stroke="#6f9fd8" stroke-dasharray="4 3"/><text x="215" y="90" text-anchor="middle" class="k">air · reserve buoyancy</text><text x="0" y="180" class="h">Separate tank</text><text x="0" y="196" class="k">floats when swamped</text></g><g transform="translate(410,20)"><path d="M0,120 C40,160 280,160 320,120 L320,20 L0,20Z" fill="#2a2d33" stroke="#a9a399"/><rect x="20" y="40" width="280" height="90" fill="#223247" stroke="#6f9fd8"/><text x="160" y="90" text-anchor="middle" fill="#ece7df" class="h">fuel in the chambers · +0 kg</text><text x="0" y="180" class="h">Sealed chambers</text><text x="0" y="196" class="k" fill="#d9776b">full tank = no reserve buoyancy</text></g></svg>`,
+  cost: `<svg viewBox="0 0 760 240"><line x1="60" y1="90" x2="700" y2="90" stroke="#ece7df" stroke-dasharray="5 4"/><text x="62" y="82" class="h">budget · $6,000</text><rect x="160" y="150" width="140" height="70" fill="#716c64"/><text x="230" y="190" text-anchor="middle" fill="#ece7df">plate $2,100</text><rect x="160" y="50" width="140" height="100" fill="#6f9fd8"/><text x="230" y="105" text-anchor="middle" fill="#1a1c1f" class="h">outboard $3,000</text><rect x="160" y="20" width="140" height="30" fill="#d9776b"/><text x="230" y="40" text-anchor="middle" fill="#1a1c1f">welding $900</text><rect x="160" y="-2" width="140" height="22" fill="#e0a458"/><text x="230" y="14" text-anchor="middle" fill="#1a1c1f">fittings $650</text><text x="230" y="236" text-anchor="middle" class="h">$6,650 to build</text><rect x="460" y="90" width="140" height="130" fill="#6fbf8a"/><text x="530" y="160" text-anchor="middle" fill="#1a1c1f" class="h">used 40 hp · $1,400</text><text x="530" y="236" text-anchor="middle" class="h">$5,050 with a used motor</text></svg>`,
+  sketch: (q) => `<svg viewBox="0 0 760 160"><rect x="20" y="20" width="720" height="120" rx="10" fill="none" stroke="#454b54" stroke-dasharray="6 4"/><text x="380" y="78" text-anchor="middle" class="h">a picture for: ${q.replace(/[<>&]/g, '')}</text><text x="380" y="100" text-anchor="middle" class="k">in the real thing cc draws this; the prototype shows where it lands</text></svg>`,
+};
+// ---------- the library ----------
+const L = {
+  books: {
+    plane: { id: 'plane', title: 'Plane', parent: null, edition: '2nd edition · p.2 redrawn after Fuel Tank came back', cover: 'wing', pages: [
+      { q: 'How much wing does a two-seater need?', art: 'wingarea', cap: 'Only the long-span version clears the line; the first stretch gets you most of the way for a fifth of the extra structure.' },
+      { q: 'Which airfoil for a slow, forgiving wing?', art: 'airfoils', cap: 'Thick and blunt is the point for a slow wing. <i>Scale matters: the same shape at 15 cm is a propeller, at 8 m an airliner.</i>', kept: true, note: 'redrawn in the 2nd edition', doors: ['wings'] },
+      { q: 'Where does the fuel go?', art: 'spar', cap: 'The frame that holds the wing up also holds the fuel. No separate vessel, no extra mass.', doors: ['fuel'] },
+      { q: 'Can I build the wing before the fuselage?', art: 'sequence', cap: 'Yes, as long as the pressure test happens before the skin goes on.', aside: true },
+    ]},
+    wings: { id: 'wings', title: 'wings', parent: 'plane', cover: 'wing', pages: [ { q: 'Which airfoil for a slow, forgiving wing?', art: 'airfoils', cap: 'Thick and blunt is the point for a slow wing.', from: 'Plane' }, { q: 'How thick can the Clark Y go before drag bites?', art: 'sketch:thickness vs drag', cap: 'Up to 14 percent before the drag curve turns; yours is 11.7.' } ] },
+    fuel: { id: 'fuel', title: 'Fuel Tank', parent: 'plane', cover: 'tank', busy: true, pages: [ { q: 'Where does the fuel go?', art: 'spar', cap: 'The frame that holds the wing up also holds the fuel.', from: 'Plane' } ] },
+    boat: { id: 'boat', title: 'Boat', parent: null, cover: 'boat', pages: [
+      { q: 'Design a 5 m aluminium fishing boat.', art: 'hull', cap: 'Flat bottom and 4 mm plate: cheap to weld, happy in shallow water, slams in chop.' },
+      { q: 'Why not use @Fuel Tank in a boat?', art: 'chambers', cap: 'The plane trick carries over, but a full tank is a boat with no reserve buoyancy.' },
+      { q: 'What does it cost to build?', art: 'cost', cap: 'Over budget by $650 new; under by $950 with a used motor.' },
+    ]},
+  },
+  order: ['plane', 'wings', 'fuel', 'boat'],
+  aside: [], pinned: ['airfoils at scale'], pinnedBooks: new Set(),
+  kept: 14, binned: 5,
+};
+let cur = 'plane', sel = null, hist = [], convo = { plane: [ ['You', 'Where does the fuel go?'], ['cc', 'Drew p.3. The spar box is already sealed on three sides in your drawing, so the tank is mostly a sealing job. I used your 1.4 m chord.'], ['You', 'and the weight?'], ['cc', 'Added 1.8 kg of sealant per side to p.3 rather than a new page.'] ] };
+
+const $ = (s) => document.querySelector(s), $$ = (s) => [...document.querySelectorAll(s)];
+const toast = (m) => { const t = $('#toast'); t.textContent = m; t.classList.add('on'); clearTimeout(toast.t); toast.t = setTimeout(() => t.classList.remove('on'), 2000); };
+const COVER = { wing: '<svg viewBox="0 0 28 28"><path d="M4 16 C9 8 20 8 25 15 L4 18Z" fill="#454b54"/></svg>', tank: '<svg viewBox="0 0 28 28"><rect x="5" y="9" width="18" height="10" rx="3" fill="#6f9fd8"/></svg>', boat: '<svg viewBox="0 0 28 28"><path d="M3 15 L25 15 L21 21 L7 21Z" fill="#454b54"/><path d="M9 15 L9 8 L19 8 L19 15" stroke="#a9a399" fill="none" stroke-width="1.5"/></svg>', page: '<svg viewBox="0 0 28 28"><rect x="6" y="4" width="16" height="20" rx="2" fill="#2a2d33" stroke="#716c64"/><path d="M9 10h10M9 14h10M9 18h6" stroke="#716c64"/></svg>' };
+
+function renderLib() {
+  const el = $('#books'); el.innerHTML = '';
+  for (const id of L.order) {
+    const b = L.books[id];
+    const d = document.createElement('div'); d.className = `book${b.parent ? ' quest' : ''}${id === cur ? ' open' : ''}`;
+    d.innerHTML = `<div class="cover">${COVER[b.cover] || COVER.page}</div><div><div class="t">${b.title}</div><div class="m">${b.busy ? '<i></i>' : ''}${b.pages.length} page${b.pages.length === 1 ? '' : 's'}${b.edition ? ' · 2nd edition' : ''}${b.busy ? ' · working' : ''}</div></div>`;
+    d.onclick = () => open(id); el.append(d);
+  }
+  $('#aside').innerHTML = L.aside.length ? L.aside.map((a, i) => `<span data-i="${i}" title="bring it back">${a.label}</span>`).join('') : '<span class="none">nothing waiting</span>';
+  for (const s of $$('#aside span[data-i]')) s.onclick = () => { const a = L.aside.splice(+s.dataset.i, 1)[0]; a.page.aside = false; open(a.book); toast('back on the desk'); };
+  $('#pinned').innerHTML = (L.pinned.length || L.pinnedBooks.size) ? [...L.pinned.map((p) => `<span>${p}</span>`), ...[...L.pinnedBooks].map((b) => `<span>📖 ${L.books[b].title}</span>`)].join('') : '<span class="none">nothing pinned</span>';
+  $('#librarian').innerHTML = `<b>Librarian</b> · you kept ${L.kept} pages and threw out ${L.binned}${L.binned >= 5 ? ', mostly tables. Fewer tables now.' : '.'}`;
+}
+function pageEl(p, i, book) {
+  const d = document.createElement('div'); d.className = `page${p.aside ? ' aside' : ''}${p.drawing ? ' drawing' : ''}`; d.dataset.i = i;
+  const art = p.art.startsWith('sketch:') ? ART.sketch(p.art.slice(7)) : ART[p.art];
+  const doors = (p.doors || []).map((id) => L.books[id]).filter(Boolean);
+  d.innerHTML = `<div class="eyebrow"><span class="n">p.${i + 1}</span><q>${p.q}</q>${p.from ? `<span>· from ${p.from}</span>` : ''}${p.note ? `<span class="note">· ${p.note}</span>` : ''}${p.aside ? '<span>· set aside</span>' : ''}</div>
+  <div class="sheet${p.kept ? ' kept' : ''}${sel === i ? ' sel' : ''}">
+    <div class="acts"><button class="keep">${p.kept ? '✓ kept' : '✓ keep'}</button><button class="bin">✕</button><button class="simpler">simpler</button><button class="pin">☆ pin</button><button class="later">${p.aside ? '⏱ now' : '⏱ later'}</button><button class="branch">branch ↗</button></div>
+    ${p.drawing ? ART.sketch(p.q) : art}
+    <p class="cap">${p.drawing ? 'drawing' : p.cap}</p>
+    ${doors.length ? `<div class="doors">${doors.map((b) => `<span class="door" data-go="${b.id}"><i class="${b.busy ? 'busy' : ''}"></i>↗ ${b.title} · ${b.pages.length} page${b.pages.length === 1 ? '' : 's'}</span>`).join('')}</div>` : ''}
+  </div>`;
+  const sheet = d.querySelector('.sheet');
+  sheet.onclick = (e) => { if (e.target.closest('button, .door')) return; sel = sel === i ? null : i; render(); $('#in').focus(); };
+  const act = (cls, fn) => { d.querySelector(cls).onclick = (e) => { e.stopPropagation(); fn(); }; };
+  act('.keep', () => { p.kept = !p.kept; L.kept += p.kept ? 1 : -1; render(); toast(p.kept ? 'kept' : 'unkept'); });
+  act('.bin', () => { book.pages.splice(i, 1); L.binned++; sel = null; render(); toast('thrown out — the librarian notes it'); });
+  act('.simpler', () => { p.cap = p.cap.split(/[.;]/)[0] + '.'; render(); toast('redrawn with fewer words'); });
+  act('.pin', () => { L.pinned.push(p.q.replace(/\?$/, '').toLowerCase().slice(0, 26)); renderLib(); toast('pinned to the library'); });
+  act('.later', () => { if (p.aside) { p.aside = false; L.aside = L.aside.filter((a) => a.page !== p); } else { p.aside = true; L.aside.push({ label: p.q.replace(/\?$/, '').slice(0, 22), page: p, book: book.id }); } render(); });
+  act('.branch', () => branch(book, p, i));
+  for (const dr of d.querySelectorAll('.door')) dr.onclick = (e) => { e.stopPropagation(); open(dr.dataset.go); };
+  return d;
+}
+function render() {
+  const b = L.books[cur];
+  $('#title').textContent = b.title; $('#ed').textContent = b.edition || (b.parent ? `side quest of ${L.books[b.parent].title}` : '');
+  $('#pinbook').className = 'pin' + (L.pinnedBooks.has(cur) ? ' on' : ''); $('#pinbook').textContent = L.pinnedBooks.has(cur) ? '★ pinned' : '☆ pin book';
+  $('#back').style.visibility = hist.length ? 'visible' : 'hidden';
+  const el = $('#pages'); el.innerHTML = '';
+  if (!b.pages.length) el.innerHTML = '<div class="empty">An empty book. Ask something and the first page is drawn.</div>';
+  b.pages.forEach((p, i) => el.append(pageEl(p, i, b)));
+  const sc = $('#scope'); sc.className = 'scope' + (sel != null ? ' on' : ''); sc.innerHTML = sel != null ? `re: p.${sel + 1} <button title="clear">✕</button>` : '';
+  if (sel != null) sc.querySelector('button').onclick = () => { sel = null; render(); };
+  $('#in').placeholder = sel != null ? 'What should change here, or what do you want to know?' : "What's on your mind?";
+  const dr = $('#drawer'); dr.innerHTML = (convo[cur] || []).map(([w, t]) => `<p><b>${w}</b> · ${t}</p>`).join('') || '<p>nothing said yet</p>'; dr.scrollTop = dr.scrollHeight;
+  renderLib();
+}
+function open(id, { push = true } = {}) { if (push && id !== cur) hist.push(cur); cur = id; sel = null; render(); $('#pages').scrollTop = 0; }
+$('#back').onclick = () => { if (hist.length) open(hist.pop(), { push: false }); };
+$('#pinbook').onclick = () => { L.pinnedBooks.has(cur) ? L.pinnedBooks.delete(cur) : L.pinnedBooks.add(cur); render(); };
+$('#chat-t').onclick = () => { const d = $('#drawer'); d.classList.toggle('on'); $('#chat-t').textContent = d.classList.contains('on') ? 'conversation ▾' : 'conversation ▴'; };
+$('#newbook').onclick = () => { const t = prompt('Name the book'); if (!t) return; const id = 'b' + Date.now(); L.books[id] = { id, title: t, parent: null, cover: 'page', pages: [] }; L.order.push(id); open(id); $('#in').focus(); };
+
+// asking draws a page: scoped to a page when one is picked
+function ask() {
+  const q = $('#in').value.trim(); if (!q) return; $('#in').value = '';
+  const b = L.books[cur];
+  (convo[cur] = convo[cur] || []).push(['You', (sel != null ? `(p.${sel + 1}) ` : '') + q]);
+  const canned = /cost|price|\$/i.test(q) ? ['cost', 'Over budget by $650 new; under by $950 with a used motor.'] : /weight|mass|heav/i.test(q) ? ['wingarea', 'The long-span wing adds 9 kg; the short stretch adds 3.'] : /step|order|build|first/i.test(q) ? ['sequence', 'Jig, ribs, test, skin. Test before skin, always.'] : /tank|fuel/i.test(q) ? ['spar', 'The spar box is the tank; sealing it is the whole job.'] : [null, null];
+  const page = { q, art: canned[0] || ('sketch:' + q), cap: canned[1] || `One picture answers this; the sentence under it is all cc says.`, drawing: true, scoped: sel };
+  if (sel != null) { const target = b.pages[sel]; page.note = `about p.${sel + 1}`; }
+  b.pages.push(page); sel = null; render(); $('#pages').scrollTop = $('#pages').scrollHeight;
+  setTimeout(() => { page.drawing = false; convo[cur].push(['cc', page.cap.replace(/<[^>]+>/g, '')]); render(); $('#pages').scrollTop = $('#pages').scrollHeight; }, 1400);
+}
+$('#go').onclick = ask; $('#in').addEventListener('keydown', (e) => { if (e.key === 'Enter') ask(); });
+
+// branching from a page opens a side quest with that page as its first page; the page keeps a door
+function branch(book, p, i) {
+  const q = prompt('What should the side quest look into? (leave empty to just take the page along)') ?? null; if (q === null) return;
+  const id = 'q' + Date.now();
+  L.books[id] = { id, title: (q || p.q).replace(/\?$/, '').slice(0, 22), parent: book.id, cover: 'page', busy: !!q, pages: [ { ...p, kept: false, doors: [], from: book.title, aside: false } ] };
+  L.order.splice(L.order.indexOf(book.id) + 1, 0, id);
+  (p.doors = p.doors || []).push(id);
+  open(id);
+  if (q) { $('#in').value = q; ask(); setTimeout(() => { L.books[id].busy = false; renderLib(); }, 1500); }
+}
+render();
+</script>
+</body>
+</html>
