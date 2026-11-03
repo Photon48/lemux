@@ -24,21 +24,37 @@ export type Node = {
   archive?: boolean;
   successor?: string;
   digested?: number;
-  canvas?: CanvasState;                                       // the person's layer over cc's nodes
-  origin?: { id: string; kind: string; q: string; cap: string; art?: string; text?: string; parentName: string }; // the node a dive started from
+  canvas?: CanvasState; // the person's layer over cc's nodes
+  origin?: {
+    id: string;
+    kind: string;
+    q: string;
+    cap: string;
+    art?: string;
+    text?: string;
+    parentName: string;
+  }; // the node a dive started from
 };
-export type UserNode = { id: string; kind: 'note' | 'img' | 'file'; q: string; text?: string; path?: string; x: number; y: number };
+export type UserNode = {
+  id: string;
+  kind: 'note' | 'img' | 'file';
+  q: string;
+  text?: string;
+  path?: string;
+  x: number;
+  y: number;
+};
 export type CanvasState = {
   pos: Record<string, { x: number; y: number }>;
   frames: { id: string; x: number; y: number; w: number; h: number; lbl: string }[];
-  links: { a: string; b: string; lbl?: string }[];           // the person's own links (cc's come from the transcript)
-  unlinks: { a: string; b: string }[];                         // cc links the person removed
+  links: { a: string; b: string; lbl?: string }[]; // the person's own links (cc's come from the transcript)
+  unlinks: { a: string; b: string }[]; // cc links the person removed
   notes: UserNode[];
-  removed: string[];                                           // cc nodes the person deleted (the taste signal)
-  removedQ: string[];                                          // their captions, for the reminder
+  removed: string[]; // cc nodes the person deleted (the taste signal)
+  removedQ: string[]; // their captions, for the reminder
   folded: string[];
   aside: string[];
-  history: string[];                                           // undo stack of JSON snapshots of this state
+  history: string[]; // undo stack of JSON snapshots of this state
 };
 
 export function readTree(): Node[] {
@@ -80,7 +96,11 @@ export function descendants(id: string, nodes = readTree()): string[] {
   const frontier = [id];
   while (frontier.length) {
     const p = frontier.shift()!;
-    for (const n of nodes) if (n.parent === p) { out.push(n.id); frontier.push(n.id); }
+    for (const n of nodes)
+      if (n.parent === p) {
+        out.push(n.id);
+        frontier.push(n.id);
+      }
   }
   return out;
 }
@@ -109,11 +129,23 @@ function lastCreated(nodes: Node[]): number {
 // plus the unseen done/error flag. Sessions this server runs itself are
 // tracked in memory; these files cover ones running in a terminal.
 export function hookState(id: string): string {
-  try { return fs.readFileSync(path.join(LEMUX_DIR, 'state', id), 'utf8').trim() || 'idle'; } catch { return 'idle'; }
+  try {
+    return fs.readFileSync(path.join(LEMUX_DIR, 'state', id), 'utf8').trim() || 'idle';
+  } catch {
+    return 'idle';
+  }
 }
 export function hookNotify(id: string): string {
-  try { return fs.readFileSync(path.join(LEMUX_DIR, 'notify', id), 'utf8').trim(); } catch { return ''; }
+  try {
+    return fs.readFileSync(path.join(LEMUX_DIR, 'notify', id), 'utf8').trim();
+  } catch {
+    return '';
+  }
 }
 export function clearNotify(id: string): void {
-  try { fs.unlinkSync(path.join(LEMUX_DIR, 'notify', id)); } catch { /* none */ }
+  try {
+    fs.unlinkSync(path.join(LEMUX_DIR, 'notify', id));
+  } catch {
+    /* none */
+  }
 }

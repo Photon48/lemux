@@ -36,25 +36,62 @@ Taste: the person deletes what they don't want; the envelope says how many nodes
 export type Taste = { removed: number; lastRemoved: string[] };
 
 export function reminder(t: Taste): string {
-  const taste = t.removed ? ` They have removed ${t.removed} node${t.removed === 1 ? '' : 's'} so far${t.lastRemoved.length ? ` (last: ${t.lastRemoved.map((x) => `"${x}"`).join(', ')})` : ''}.` : '';
+  const taste = t.removed
+    ? ` They have removed ${t.removed} node${t.removed === 1 ? '' : 's'} so far${t.lastRemoved.length ? ` (last: ${t.lastRemoved.map((x) => `"${x}"`).join(', ')})` : ''}.`
+    : '';
   return `Workstation: answer with one \`\`\`canvas fence of operations (add / update / remove / link / unlink; pictures as SVG with at most 40 words, text at most 60) and at most one sentence after it, or one sentence alone if nothing should change.${taste}`;
 }
 
 // The canvas envelope: what cc sees of the canvas with each question.
-export type EnvNode = { id: string; kind: string; q?: string; cap?: string; from?: string | null; art?: string; text?: string; user?: boolean };
-export function canvasEnvelope(o: { nodes: EnvNode[]; picked: string[]; links: { a: string; b: string; lbl?: string }[]; frames: { lbl: string; inside: string[] }[]; notes: { id: string; title: string; text: string }[]; files: { id: string; name: string; path: string }[]; at?: { x: number; y: number } | null; from?: string | null }): string {
+export type EnvNode = {
+  id: string;
+  kind: string;
+  q?: string;
+  cap?: string;
+  from?: string | null;
+  art?: string;
+  text?: string;
+  user?: boolean;
+};
+export function canvasEnvelope(o: {
+  nodes: EnvNode[];
+  picked: string[];
+  links: { a: string; b: string; lbl?: string }[];
+  frames: { lbl: string; inside: string[] }[];
+  notes: { id: string; title: string; text: string }[];
+  files: { id: string; name: string; path: string }[];
+  at?: { x: number; y: number } | null;
+  from?: string | null;
+}): string {
   const lines: string[] = ['<lemux-canvas>'];
   lines.push(`Nodes (${o.nodes.length}):`);
   for (const n of o.nodes) {
     const picked = o.picked.includes(n.id);
-    lines.push(`- ${n.id} [${n.kind}${picked ? ', PICKED' : ''}]${n.from ? ` from ${n.from}` : ''}: ${n.q ? `asked "${n.q}" → ` : ''}${n.cap || ''}`);
-    if (picked) { if (n.art) lines.push(`  art: ${n.art}`); if (n.text) lines.push(`  text: ${n.text}`); }
+    lines.push(
+      `- ${n.id} [${n.kind}${picked ? ', PICKED' : ''}]${n.from ? ` from ${n.from}` : ''}: ${n.q ? `asked "${n.q}" → ` : ''}${n.cap || ''}`
+    );
+    if (picked) {
+      if (n.art) lines.push(`  art: ${n.art}`);
+      if (n.text) lines.push(`  text: ${n.text}`);
+    }
   }
-  if (o.links.length) lines.push(`Links: ${o.links.map((l) => `${l.a} — ${l.b}${l.lbl ? ` (${l.lbl})` : ''}`).join('; ')}`);
-  if (o.frames.length) lines.push(`Frames: ${o.frames.map((f) => `"${f.lbl}" holding ${f.inside.join(', ') || 'nothing'}`).join('; ')}`);
-  if (o.notes.length) { lines.push('The person\'s notes:'); for (const n of o.notes) lines.push(`- ${n.title}: ${n.text}`); }
-  if (o.files.length) { lines.push('The person\'s files on the canvas (read them if relevant):'); for (const f of o.files) lines.push(`- ${f.name}: ${f.path}`); }
-  lines.push(o.picked.length ? `Picked: ${o.picked.join(', ')}. The question is about these.` : 'Nothing picked.');
+  if (o.links.length)
+    lines.push(`Links: ${o.links.map((l) => `${l.a} — ${l.b}${l.lbl ? ` (${l.lbl})` : ''}`).join('; ')}`);
+  if (o.frames.length)
+    lines.push(
+      `Frames: ${o.frames.map((f) => `"${f.lbl}" holding ${f.inside.join(', ') || 'nothing'}`).join('; ')}`
+    );
+  if (o.notes.length) {
+    lines.push("The person's notes:");
+    for (const n of o.notes) lines.push(`- ${n.title}: ${n.text}`);
+  }
+  if (o.files.length) {
+    lines.push("The person's files on the canvas (read them if relevant):");
+    for (const f of o.files) lines.push(`- ${f.name}: ${f.path}`);
+  }
+  lines.push(
+    o.picked.length ? `Picked: ${o.picked.join(', ')}. The question is about these.` : 'Nothing picked.'
+  );
   if (o.from) lines.push(`A new node should say from: "${o.from}".`);
   lines.push('</lemux-canvas>');
   return lines.join('\n');

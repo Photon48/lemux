@@ -1,64 +1,144 @@
-<!DOCTYPE html>
+<!doctype html>
 <html lang="en">
-<head>
-<meta charset="utf-8">
-<meta name="viewport" content="width=device-width, initial-scale=1">
-<title>lemux</title>
-<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;500;600&family=IBM+Plex+Serif:ital,wght@0,400;0,600;1,400&family=IBM+Plex+Mono:wght@400;500&display=swap" rel="stylesheet">
-<link rel="stylesheet" href="/style.css">
-</head>
-<body>
-<div class="app">
-  <aside class="lib">
-    <div class="lib-head"><b>Layers</b><select id="project" title="project folder"></select></div>
-    <div class="shelf"><h2>Canvases <button id="newc" title="a new session: ask and it opens">+ new</button></h2><div id="layers"></div><div id="older" class="older"></div></div>
-    <div class="truth" id="truth"><b>How it works.</b> A canvas is a session. Each node is one answer: a picture or words, cc's choice. Double-click a node to dive: a side quest with its own canvas and the whole conversation behind it. The parent never changes; the node becomes a portal. Where you put things is saved, and what you delete tells cc what you don't want more of. An answer is a short list of changes to the canvas, not only a new node.</div>
-  </aside>
-  <div id="side-split" title="drag to resize"></div>
-  <main class="desk">
-    <div class="spine">
-      <button class="up" id="up" hidden>↑ Up</button>
-      <div class="crumbs" id="crumbs"></div>
-      <span class="sp"></span>
-      <span id="pill" class="pill hidden"><span class="dot"></span><span id="pill-text"></span></span>
-      <button id="stop" class="pill stop hidden" title="stop drawing">■ stop</button>
-      <span class="k">double-click a node to dive in · two fingers drag to pan · pinch to zoom · a frame named <b>later</b> sets aside what you drop in it</span>
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>lemux</title>
+    <link
+      href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;500;600&family=IBM+Plex+Serif:ital,wght@0,400;0,600;1,400&family=IBM+Plex+Mono:wght@400;500&display=swap"
+      rel="stylesheet"
+    />
+    <link rel="stylesheet" href="/style.css" />
+  </head>
+  <body>
+    <div class="app">
+      <aside class="lib">
+        <div class="lib-head">
+          <b>Layers</b
+          ><select id="project" title="project folder"></select>
+        </div>
+        <div class="shelf">
+          <h2>Canvases <button id="newc" title="a new session: ask and it opens">+ new</button></h2>
+          <div id="layers"></div>
+          <div id="older" class="older"></div>
+        </div>
+        <div class="truth" id="truth">
+          <b>How it works.</b> A canvas is a session. Each node is one answer: a picture or words, cc's
+          choice. Double-click a node to dive: a side quest with its own canvas and the whole conversation
+          behind it. The parent never changes; the node becomes a portal. Where you put things is saved, and
+          what you delete tells cc what you don't want more of. An answer is a short list of changes to the
+          canvas, not only a new node.
+        </div>
+      </aside>
+      <div id="side-split" title="drag to resize"></div>
+      <main class="desk">
+        <div class="spine">
+          <button class="up" id="up" hidden>↑ Up</button>
+          <div class="crumbs" id="crumbs"></div>
+          <span class="sp"></span>
+          <span id="pill" class="pill hidden"><span class="dot"></span><span id="pill-text"></span></span>
+          <button id="stop" class="pill stop hidden" title="stop drawing">■ stop</button>
+          <span class="k"
+            >double-click a node to dive in · two fingers drag to pan · pinch to zoom · a frame named
+            <b>later</b> sets aside what you drop in it</span
+          >
+        </div>
+        <div class="viewport" id="vp">
+          <div class="world" id="world">
+            <svg class="edges" id="edges"></svg>
+            <div id="frames"></div>
+            <div id="nodes"></div>
+          </div>
+        </div>
+        <div class="mini" id="mini"></div>
+        <div class="zoom">
+          <button id="z-out" title="zoom out">−</button><button id="z-reset" title="back to 100%">100%</button
+          ><button id="z-in" title="zoom in">+</button>
+        </div>
+        <div class="modehint" id="modehint"></div>
+        <div class="inside" id="inside"></div>
+        <div class="rail" id="rail">
+          <button class="tool" data-tool="ask" title="pick a spot, ask, the answer lands there">
+            <svg viewBox="0 0 24 24">
+              <path d="M4 5h16v10H9l-5 4z" />
+              <path d="M9 10h6" /></svg
+            ><span>Ask</span>
+          </button>
+          <button class="tool" data-tool="note" title="your own note on the canvas">
+            <svg viewBox="0 0 24 24">
+              <path d="M5 4h14v12l-4 4H5z" />
+              <path d="M15 20v-4h4" />
+              <path d="M8 9h8M8 13h5" /></svg
+            ><span>Note</span>
+          </button>
+          <button class="tool" data-tool="frame" title="a named section of the canvas">
+            <svg viewBox="0 0 24 24">
+              <rect x="4" y="6" width="16" height="13" rx="2" stroke-dasharray="3 2" />
+              <path d="M8 6V4h5" /></svg
+            ><span>Frame</span>
+          </button>
+          <button class="tool" data-tool="file" title="bring in an image or a file">
+            <svg viewBox="0 0 24 24">
+              <rect x="4" y="4" width="16" height="16" rx="2" />
+              <path d="M4 16l5-5 4 4 3-3 4 4" />
+              <circle cx="15" cy="9" r="1.5" /></svg
+            ><span>Image</span>
+          </button>
+          <hr />
+          <button class="tool on" data-tool="select" title="select and move">
+            <svg viewBox="0 0 24 24"><path d="M6 4l12 8-6 1-3 6z" /></svg><span>Select</span>
+          </button>
+          <button class="tool" data-tool="pan" title="drag the canvas">
+            <svg viewBox="0 0 24 24">
+              <path d="M8 13V6a1.5 1.5 0 013 0v6" />
+              <path d="M11 12V5a1.5 1.5 0 013 0v7" />
+              <path
+                d="M14 12V7a1.5 1.5 0 013 0v7l-1 4a4 4 0 01-4 3h-1a4 4 0 01-4-3l-2-5a1.5 1.5 0 012.6-1.4L8 13"
+              /></svg
+            ><span>Pan</span>
+          </button>
+          <hr />
+          <button class="tool" data-tool="find" title="find a node across every canvas">
+            <svg viewBox="0 0 24 24">
+              <circle cx="11" cy="11" r="6" />
+              <path d="M16 16l4 4" /></svg
+            ><span>Find</span>
+          </button>
+          <button class="tool" data-tool="undo" title="undo the last move or delete">
+            <svg viewBox="0 0 24 24">
+              <path d="M9 14l-4-4 4-4" />
+              <path d="M5 10h9a5 5 0 010 10h-3" /></svg
+            ><span>Undo</span>
+          </button>
+        </div>
+        <input type="file" id="filepick" style="display: none" />
+        <div id="cards"></div>
+        <div class="ask">
+          <div class="change" id="change">
+            <b>cc changed the canvas</b><span id="change-t"></span><span class="sp"></span
+            ><button id="change-x">✕</button>
+          </div>
+          <div class="drawer" id="drawer"></div>
+          <div class="chat"><button id="chat-t">conversation ▴</button></div>
+          <div class="bar">
+            <div id="ac" class="ac hidden"></div>
+            <span class="scope" id="scope"></span>
+            <textarea id="in" rows="1" placeholder="Ask"></textarea>
+            <span id="mscope" class="seg hidden" title="what an @mention carries"
+              ><button data-scope="last" class="on">Last answer</button
+              ><button data-scope="whole">Whole canvas</button><button data-scope="brief">Brief</button></span
+            >
+            <button class="mic" id="mic" title="speak">●</button
+            ><button class="go" id="go" title="ask">→</button>
+          </div>
+        </div>
+      </main>
     </div>
-    <div class="viewport" id="vp"><div class="world" id="world"><svg class="edges" id="edges"></svg><div id="frames"></div><div id="nodes"></div></div></div>
-    <div class="mini" id="mini"></div>
-    <div class="zoom"><button id="z-out" title="zoom out">−</button><button id="z-reset" title="back to 100%">100%</button><button id="z-in" title="zoom in">+</button></div>
-    <div class="modehint" id="modehint"></div>
-    <div class="inside" id="inside"></div>
-    <div class="rail" id="rail">
-      <button class="tool" data-tool="ask" title="pick a spot, ask, the answer lands there"><svg viewBox="0 0 24 24"><path d="M4 5h16v10H9l-5 4z"/><path d="M9 10h6"/></svg><span>Ask</span></button>
-      <button class="tool" data-tool="note" title="your own note on the canvas"><svg viewBox="0 0 24 24"><path d="M5 4h14v12l-4 4H5z"/><path d="M15 20v-4h4"/><path d="M8 9h8M8 13h5"/></svg><span>Note</span></button>
-      <button class="tool" data-tool="frame" title="a named section of the canvas"><svg viewBox="0 0 24 24"><rect x="4" y="6" width="16" height="13" rx="2" stroke-dasharray="3 2"/><path d="M8 6V4h5"/></svg><span>Frame</span></button>
-      <button class="tool" data-tool="file" title="bring in an image or a file"><svg viewBox="0 0 24 24"><rect x="4" y="4" width="16" height="16" rx="2"/><path d="M4 16l5-5 4 4 3-3 4 4"/><circle cx="15" cy="9" r="1.5"/></svg><span>Image</span></button>
-      <hr>
-      <button class="tool on" data-tool="select" title="select and move"><svg viewBox="0 0 24 24"><path d="M6 4l12 8-6 1-3 6z"/></svg><span>Select</span></button>
-      <button class="tool" data-tool="pan" title="drag the canvas"><svg viewBox="0 0 24 24"><path d="M8 13V6a1.5 1.5 0 013 0v6"/><path d="M11 12V5a1.5 1.5 0 013 0v7"/><path d="M14 12V7a1.5 1.5 0 013 0v7l-1 4a4 4 0 01-4 3h-1a4 4 0 01-4-3l-2-5a1.5 1.5 0 012.6-1.4L8 13"/></svg><span>Pan</span></button>
-      <hr>
-      <button class="tool" data-tool="find" title="find a node across every canvas"><svg viewBox="0 0 24 24"><circle cx="11" cy="11" r="6"/><path d="M16 16l4 4"/></svg><span>Find</span></button>
-      <button class="tool" data-tool="undo" title="undo the last move or delete"><svg viewBox="0 0 24 24"><path d="M9 14l-4-4 4-4"/><path d="M5 10h9a5 5 0 010 10h-3"/></svg><span>Undo</span></button>
+    <div class="bar-acts hid" id="acts">
+      <b id="act-t"></b><button id="a-ask">Ask</button><button id="a-frame">Frame</button
+      ><button id="a-bin">Delete</button><button class="x" id="a-x">✕</button>
     </div>
-    <input type="file" id="filepick" style="display:none">
-    <div id="cards"></div>
-    <div class="ask">
-      <div class="change" id="change"><b>cc changed the canvas</b><span id="change-t"></span><span class="sp"></span><button id="change-x">✕</button></div>
-      <div class="drawer" id="drawer"></div>
-      <div class="chat"><button id="chat-t">conversation ▴</button></div>
-      <div class="bar">
-        <div id="ac" class="ac hidden"></div>
-        <span class="scope" id="scope"></span>
-        <textarea id="in" rows="1" placeholder="Ask"></textarea>
-        <span id="mscope" class="seg hidden" title="what an @mention carries"><button data-scope="last" class="on">Last answer</button><button data-scope="whole">Whole canvas</button><button data-scope="brief">Brief</button></span>
-        <button class="mic" id="mic" title="speak">●</button><button class="go" id="go" title="ask">→</button>
-      </div>
-    </div>
-  </main>
-</div>
-<div class="bar-acts hid" id="acts"><b id="act-t"></b><button id="a-ask">Ask</button><button id="a-frame">Frame</button><button id="a-bin">Delete</button><button class="x" id="a-x">✕</button></div>
-<div id="toast" class="toast"></div>
-<script src="/app.js"></script>
-</body>
+    <div id="toast" class="toast"></div>
+    <script src="/app.js"></script>
+  </body>
 </html>

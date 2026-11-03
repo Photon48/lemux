@@ -37,7 +37,10 @@ export async function brief(id: string, b: BriefInput): Promise<void> {
   const parts = [`A side quest is being branched from this assistant response:\n"${b.ctx}"`];
   if (b.excerpt) parts.push(`The user highlighted: "${b.excerpt}"`);
   if (b.question) parts.push(`Their question: "${b.question}"`);
-  if (b.chain.length) parts.push(`Earlier steps of this exploration, oldest first:\n${b.chain.map((l) => `- ${l}`).join('\n')}`);
+  if (b.chain.length)
+    parts.push(
+      `Earlier steps of this exploration, oldest first:\n${b.chain.map((l) => `- ${l}`).join('\n')}`
+    );
   let text = '';
   try {
     for await (const m of query({
@@ -54,16 +57,28 @@ export async function brief(id: string, b: BriefInput): Promise<void> {
     })) {
       if (m.type === 'result' && m.subtype === 'success') text = m.result;
     }
-  } catch { return; }
+  } catch {
+    return;
+  }
   const m = text.match(/\{[\s\S]*\}/);
   if (!m) return;
   try {
     const j = JSON.parse(m[0]);
-    const name = String(j.name || '').replace(/[^A-Za-z0-9 -]/g, '').trim().split(/\s+/).slice(0, 4).join(' ');
-    const diverge = String(j.diverge || '').replace(/\s+/g, ' ').trim().slice(0, 220);
+    const name = String(j.name || '')
+      .replace(/[^A-Za-z0-9 -]/g, '')
+      .trim()
+      .split(/\s+/)
+      .slice(0, 4)
+      .join(' ');
+    const diverge = String(j.diverge || '')
+      .replace(/\s+/g, ' ')
+      .trim()
+      .slice(0, 220);
     if (!name && !diverge) return;
     patchNode(id, { ...(name ? { name } : {}), diverge });
-  } catch { /* unparseable — placeholder name stays */ }
+  } catch {
+    /* unparseable — placeholder name stays */
+  }
 }
 
 // A fresh topic also gets a name: a few words for its first prompt.
@@ -74,12 +89,24 @@ export async function topicName(prompt: string): Promise<string> {
       prompt,
       options: {
         model: 'claude-haiku-4-5',
-        systemPrompt: 'The user is starting a new conversation with the message below. Reply with ONLY a 1-4 word lowercase title for that conversation. No punctuation, no quotes, nothing else.',
-        tools: [], maxTurns: 1, persistSession: false, settingSources: [], permissionMode: 'default',
+        systemPrompt:
+          'The user is starting a new conversation with the message below. Reply with ONLY a 1-4 word lowercase title for that conversation. No punctuation, no quotes, nothing else.',
+        tools: [],
+        maxTurns: 1,
+        persistSession: false,
+        settingSources: [],
+        permissionMode: 'default',
       },
     })) {
       if (m.type === 'result' && m.subtype === 'success') text = m.result;
     }
-  } catch { return ''; }
-  return text.replace(/[^A-Za-z0-9 -]/g, '').trim().split(/\s+/).slice(0, 4).join(' ');
+  } catch {
+    return '';
+  }
+  return text
+    .replace(/[^A-Za-z0-9 -]/g, '')
+    .trim()
+    .split(/\s+/)
+    .slice(0, 4)
+    .join(' ');
 }
