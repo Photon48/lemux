@@ -3,7 +3,7 @@ import { $, $$, h, esc, store, toast } from './dom.js';
 import { state, node, cnode, allNodes, widthOf, vp, world, N, F, E } from './state.js';
 import { go } from './nav.js';
 import { userOp, diveInto } from './ops.js';
-import { pullThread } from './ask.js';
+import { pullThread, send } from './ask.js';
 import { menu, peek, hidePeek } from './tools.js';
 
 export function applyView() {
@@ -90,31 +90,25 @@ function nodeEl(n) {
         : null
     )
   );
-  const twoSided = n.kind === 'pic' && n.art && n.text;
+  // every picture has two sides: the picture, and the same idea in words
   if (n.kind === 'pic' && n.art) {
-    d.append(h('div', { class: 'face front' }, frame(n), h('p', { class: 'cap', text: n.cap || '' })));
-    if (twoSided) {
-      d.append(
-        h(
-          'div',
-          { class: 'face back hidden' },
-          h('div', { class: 'words', html: esc(n.text).replace(/\n+/g, '<br>') })
-        ),
-        h(
-          'button',
-          {
-            class: 'flip',
-            title: 'turn the card over',
-            onmousedown: (e) => e.stopPropagation(),
-            onclick: (e) => {
-              e.stopPropagation();
-              flipCard(d);
-            },
+    d.append(
+      h('div', { class: 'face front' }, frame(n), h('p', { class: 'cap', text: n.cap || '' })),
+      h('div', { class: 'face back hidden' }, backOf(n)),
+      h(
+        'button',
+        {
+          class: 'flip',
+          title: 'turn the card over',
+          onmousedown: (e) => e.stopPropagation(),
+          onclick: (e) => {
+            e.stopPropagation();
+            flipCard(d);
           },
-          '↻ words'
-        )
-      );
-    }
+        },
+        '↻ words'
+      )
+    );
   }
   if (n.kind === 'text')
     d.append(h('div', { class: 'words', html: esc(n.text || '').replace(/\n+/g, '<br>') }));
@@ -269,6 +263,32 @@ function dropIntoZones() {
         toast('Set aside');
       }
   }
+}
+
+// the back of a picture: its words, or, for a picture drawn before words were
+// required, a way to ask cc for them
+function backOf(n) {
+  if (n.text) return h('div', { class: 'words', html: esc(n.text).replace(/\n+/g, '<br>') });
+  return h(
+    'div',
+    { class: 'words nowords' },
+    h('p', {}, 'No words for this picture yet.'),
+    h(
+      'button',
+      {
+        onmousedown: (e) => e.stopPropagation(),
+        onclick: (e) => {
+          e.stopPropagation();
+          state.sel = new Set([n.id]);
+          send({
+            text: `Write the words for "${n.q}": fill the back of that picture (text, 30 to 80 words).`,
+            from: n.id,
+          });
+        },
+      },
+      'Write them'
+    )
+  );
 }
 
 // the card turns over: picture on the front, words on the back

@@ -1474,3 +1474,19 @@ input[type='text'] {
 .layer .acts.asking button:hover {
   color: var(--ink);
 }
+
+/* ---- a picture drawn before its words were required ---- */
+.node .words.nowords p {
+  margin: 0 0 8px;
+  color: var(--ink-2);
+}
+.node .words.nowords button {
+  font-size: 12px;
+  color: var(--lamp);
+  border: 1px solid var(--lamp);
+  border-radius: 999px;
+  padding: 2px 10px;
+}
+.node .words.nowords button:hover {
+  background: var(--lamp-soft);
+}

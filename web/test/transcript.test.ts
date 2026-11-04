@@ -11,7 +11,14 @@ test('replay: add, update, remove with rewiring, link and unlink', () => {
       type: 'assistant',
       text: fence(
         [
-          { op: 'add', id: 'wing', kind: 'pic', cap: 'Long span.', art: '<svg/>' },
+          {
+            op: 'add',
+            id: 'wing',
+            kind: 'pic',
+            cap: 'Long span.',
+            art: '<svg/>',
+            text: 'The long span in words.',
+          },
           { op: 'add', id: 'tank', kind: 'text', from: 'wing', cap: 'Wet wing.', text: 'words' },
           { op: 'add', id: 'cost', kind: 'text', from: 'tank', cap: 'One leak test.' },
           { op: 'link', a: 'wing', b: 'cost', lbl: 'same spar' },
@@ -37,6 +44,7 @@ test('replay: add, update, remove with rewiring, link and unlink', () => {
       ['cost', 'text', 'One leak test.', 'wing'],
     ]
   );
+  assert.equal(r.nodes[0].text, 'The long span in words.', 'a picture keeps its back');
   assert.deepEqual(r.nodes[0].redrawn, ['drop the tank']);
   assert.equal(r.nodes[0].q, 'how big a wing');
   assert.deepEqual(r.links, []);

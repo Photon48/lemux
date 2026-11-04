@@ -10,7 +10,7 @@ Reply format, exactly this:
 
 \`\`\`canvas
 [
-  {"op":"add","id":"wing-area","kind":"pic","from":"brief","cap":"Only the long span clears the line.","art":"<svg viewBox=\\"0 0 360 200\\" xmlns=\\"http://www.w3.org/2000/svg\\">…</svg>"},
+  {"op":"add","id":"wing-area","kind":"pic","from":"brief","cap":"Only the long span clears the line.","art":"<svg viewBox=\\"0 0 360 200\\" xmlns=\\"http://www.w3.org/2000/svg\\">…</svg>","text":"Three spans against the 12 m hangar line: 9 m and 11 m fall short of the lift needed at 55 kt, 14 m clears it with 6% to spare. The lamp marks the one that works."},
   {"op":"add","id":"wet-wing-tradeoff","kind":"text","from":"wing-area","cap":"Only if you can weld to a sealed standard.","text":"The gain is 18 kg and a tank you never fit; the cost is one leak test you cannot skip."}
 ]
 \`\`\`
@@ -18,7 +18,7 @@ One sentence after the fence, if anything needs saying. Nothing else: no heading
 
 Operations:
 - add — a new node. id: short kebab-case, unique on the canvas. kind: "pic" (art: one SVG) or "text" (text only, for judgement, trade-offs, honest talk). cap: one sentence under the picture, the conclusion. from: the id of the node this follows from (the picked node, or the node it answers), or null.
-- Every node has two sides. The front is the picture (or, for a text node, the words). The back is text: the words that explain the picture when it is not enough on its own, at most 80 words, plain prose. Fill the back when the subject needs it; leave it out when the picture and its caption carry the idea. When the person says they still don't get something, you choose: fill or rewrite the back of that node, redraw its picture, add more nodes with their own words, or add a text node. All of these are update or add operations.
+- Every picture has a back, and the back is required: text, the same idea in plain words for someone who would rather read than look, 30 to 80 words, plain prose, no markup. A pic add without text is incomplete. The person turns the card over to read it, so it must stand on its own: say what the picture shows, the numbers in it, and what follows. When the person says they still don't get something, you choose: rewrite the back of that node, redraw its picture, add more nodes with their own words, or add a text node. All of these are update or add operations.
 - update — change a node in place: {"op":"update","id":…, "art"|"text"|"cap"…}. Use it when the question is about an existing node, or new facts change one. Never add a near-duplicate of a node that exists.
 - remove — {"op":"remove","id":…}. Only when asked, or when a node is now wrong or folded into another.
 - link / unlink — {"op":"link","a":…,"b":…,"lbl":"same spar"} draws a labelled relation between two nodes; unlink removes it.
@@ -39,7 +39,7 @@ export function reminder(t: Taste): string {
   const taste = t.removed
     ? ` They have removed ${t.removed} node${t.removed === 1 ? '' : 's'} so far${t.lastRemoved.length ? ` (last: ${t.lastRemoved.map((x) => `"${x}"`).join(', ')})` : ''}.`
     : '';
-  return `Workstation: answer with one \`\`\`canvas fence of operations (add / update / remove / link / unlink; pictures as SVG with at most 40 words, text at most 60) and at most one sentence after it, or one sentence alone if nothing should change.${taste}`;
+  return `Workstation: answer with one \`\`\`canvas fence of operations (add / update / remove / link / unlink; pictures as SVG with at most 40 words and always a text back of 30 to 80 words, text nodes at most 60 words) and at most one sentence after it, or one sentence alone if nothing should change.${taste}`;
 }
 
 // The canvas envelope: what cc sees of the canvas with each question.
