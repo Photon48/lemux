@@ -22,7 +22,15 @@ import {
   hookNotify,
   type Node,
 } from './tree.js';
-import { applyOps, blankCanvas, canvasOf, collapse, type Frame, type UserNode } from './canvas.js';
+import {
+  applyOps,
+  blankCanvas,
+  canvasOf,
+  collapse,
+  recordTurn,
+  type Frame,
+  type UserNode,
+} from './canvas.js';
 import {
   AdoptBody,
   BranchBody,
@@ -41,6 +49,7 @@ import {
 import {
   sessionFile,
   replayCanvas,
+  resumePointBefore,
   lastAssistantText,
   wholeConversation,
   firstUserText,
@@ -156,10 +165,10 @@ function fullCanvas(n: Node) {
         },
       ]
     : [];
-  const rep = f
-    ? replayCanvas(f, n.parent ? n.created - 5 : 0, seed)
-    : { nodes: seed, links: [], said: [], turns: [] };
   const c = canvasOf(n.canvas);
+  const rep = f
+    ? replayCanvas(f, n.parent ? n.created - 5 : 0, seed, new Set(c.undone))
+    : { nodes: seed, links: [], said: [], turns: [] };
   const nodes: (CNode & { origin?: boolean })[] = [];
   for (const x of rep.nodes)
     if (!c.removed.includes(x.id)) nodes.push(x.by === 'origin' ? { ...x, origin: true } : x);
@@ -362,13 +371,17 @@ async function api(req: http.IncomingMessage, res: http.ServerResponse, url: URL
     const n = getNode(mm[1]);
     if (!n) return json(res, 404, { error: 'unknown session' });
     const b = parseCanvasPost(await readBody(req));
-    const r = applyOps(canvasOf(n.canvas), b.ops, { noHistory: b.noHistory, newId: randomUUID });
+    if (b.ops.some((o) => o.op === 'undo') && S.isLive(n.id))
+      return json(res, 409, { error: 'still drawing' });
+    const lastTurn = fullCanvas(n).turns.at(-1)?.key;
+    const r = applyOps(canvasOf(n.canvas), b.ops, { noHistory: b.noHistory, newId: randomUUID, lastTurn });
     if (r.undone !== undefined) {
       if (r.undone) {
         patchNode(n.id, { canvas: r.state });
         broadcast({ type: 'canvas', sid: n.id });
+        if (r.turn) broadcast({ type: 'tree' });
       }
-      return json(res, 200, { ok: r.undone, undone: r.undone });
+      return json(res, 200, { ok: r.undone, undone: r.undone, turn: r.turn });
     }
     if (r.changed) {
       patchNode(n.id, { canvas: r.state });
@@ -444,21 +457,17 @@ async function api(req: http.IncomingMessage, res: http.ServerResponse, url: URL
     const text = b.text.trim();
     if (!text) return json(res, 400, { error: 'empty message' });
     if (S.isLive(n.id)) return json(res, 409, { error: 'still drawing' });
-    const { prompt: body, display } = expandMentions(text, b.scope);
+    const { prompt: expanded, display } = expandMentions(text, b.scope);
+    const body = b.instruction
+      ? `${expanded}\n\n<lemux-context session="" scope="note">${b.instruction}</lemux-context>`
+      : expanded;
     const picked = b.picked;
     const at = b.at ? { x: Math.round(b.at.x), y: Math.round(b.at.y) } : null;
     const from = b.from || picked[0] || null;
     const prompt = `${envelopeFor(n, picked, at, from)}\n\n${body}`;
     // where the answer should land, remembered until the result arrives
     pendingPlace.set(n.id, { at, from, picked });
-    // a dive is forked from its parent on its first message; a root with no transcript starts fresh
-    const f = sessionFile(n.id, n.dir);
-    const how = f
-      ? {}
-      : n.parent && sessionFile(n.parent, n.dir)
-        ? { fork: { parent: n.parent } }
-        : { fresh: true };
-    S.run({ sid: n.id, dir: n.dir, prompt, display, reminder: reminder(taste(n.dir)), ...how }).catch(
+    S.run({ sid: n.id, dir: n.dir, prompt, display, reminder: reminder(taste(n.dir)), ...howToRun(n) }).catch(
       () => {}
     );
     return json(res, 200, { ok: true });
@@ -518,7 +527,7 @@ async function api(req: http.IncomingMessage, res: http.ServerResponse, url: URL
         dir: parent.dir,
         prompt,
         display: seed,
-        fork: { parent: parent.id },
+        ...forkFrom(parent.id, parent.dir),
         reminder: reminder(taste(parent.dir)),
       }).catch(() => {});
     }
@@ -633,6 +642,34 @@ async function api(req: http.IncomingMessage, res: http.ServerResponse, url: URL
   json(res, 404, { error: 'no such route' });
 }
 
+// How the next question joins the session: a dive is forked from its parent on
+// its first message; a root with no transcript starts fresh. Undone turns are
+// left behind by continuing from the chain entry before them; when the first
+// turn itself was undone, the transcript goes and the session starts over.
+function howToRun(n: Node): { fork?: { parent: string }; fresh?: boolean; resumeAt?: string } {
+  const f = sessionFile(n.id, n.dir);
+  if (f) {
+    const point = resumePointBefore(f, new Set(canvasOf(n.canvas).undone));
+    if (point === undefined) return {};
+    if (point === null) {
+      try {
+        fs.unlinkSync(f);
+      } catch {
+        /* gone */
+      }
+      return n.parent && sessionFile(n.parent, n.dir) ? forkFrom(n.parent, n.dir) : { fresh: true };
+    }
+    return { resumeAt: point };
+  }
+  return n.parent && sessionFile(n.parent, n.dir) ? forkFrom(n.parent, n.dir) : { fresh: true };
+}
+function forkFrom(parentId: string, dir: string): { fork: { parent: string }; resumeAt?: string } {
+  const parent = getNode(parentId);
+  const pf = sessionFile(parentId, dir);
+  const point = parent && pf ? resumePointBefore(pf, new Set(canvasOf(parent.canvas).undone)) : undefined;
+  return { fork: { parent: parentId }, ...(point ? { resumeAt: point } : {}) };
+}
+
 // after an answer, place what it added where the question pointed
 const pendingPlace = new Map<
   string,
@@ -644,8 +681,14 @@ function placeNew(sid: string) {
   const pl = pendingPlace.get(sid);
   pendingPlace.delete(sid);
   const cv = fullCanvas(n);
-  const c = canvasOf(n.canvas);
+  let c = canvasOf(n.canvas);
   let changed = false;
+  // the turn goes on the undo stack, with the layer as it was before the answer landed
+  const last = cv.turns.at(-1);
+  if (last && !c.history.some((e) => e.kind === 'turn' && e.key === last.key)) {
+    c = recordTurn(c, last.key, last.q);
+    changed = true;
+  }
   const fresh = cv.nodes.filter((x) => !c.pos[x.id]);
   fresh.forEach((x, i) => {
     if (pl && pl.at) {

@@ -119,6 +119,7 @@ export type RunOpts = {
   display?: string; // what to echo to the UI (prompt minus injected context)
   fork?: { parent: string };
   fresh?: boolean; // brand-new session (no resume)
+  resumeAt?: string; // continue from this chain entry, leaving what came after it behind
   reminder: string; // the per-turn note that rides beside the message
 };
 
@@ -161,6 +162,7 @@ export async function run(o: RunOpts): Promise<void> {
         : o.fork
           ? { resume: o.fork.parent, forkSession: true, sessionId: o.sid }
           : { resume: o.sid }),
+      ...(o.resumeAt && !o.fresh ? { resumeSessionAt: o.resumeAt } : {}),
       includePartialMessages: true,
       canUseTool,
       // behave like the terminal — and like `cc`, the user's alias for

@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { applyOps, blankCanvas, canvasOf, HISTORY_LIMIT } from '../server/canvas.js';
+import { applyOps, blankCanvas, canvasOf, recordTurn, HISTORY_LIMIT } from '../server/canvas.js';
 
 const ids = () => {
   let i = 0;
@@ -117,4 +117,43 @@ test('remove: notes vanish, cc nodes are remembered with their captions, restore
   assert.deepEqual(c.removedQ, ['Only the long span clears the line.']);
   c = applyOps(c, [{ op: 'restore', id: 'wing' }]).state;
   assert.deepEqual(c.removed, []);
+});
+
+test('a turn of cc goes on the same stack and undoing it hides the turn and restores the layer', () => {
+  let c = applyOps(blankCanvas(), [{ op: 'move', pos: { a: { x: 1, y: 1 } } }]).state;
+  c = recordTurn(c, 'turn-2', 'merge these');
+  c = applyOps(c, [{ op: 'move', pos: { merged: { x: 9, y: 9 } } }]).state;
+  assert.deepEqual(
+    c.history.map((e) => e.kind),
+    ['layer', 'turn', 'layer']
+  );
+  let r = applyOps(c, [{ op: 'undo' }], { lastTurn: 'turn-2' });
+  assert.equal(r.turn, undefined, "the newest entry is the person's move");
+  assert.deepEqual(r.state.pos, { a: { x: 1, y: 1 } });
+  r = applyOps(r.state, [{ op: 'undo' }], { lastTurn: 'turn-2' });
+  assert.deepEqual(r.turn, { key: 'turn-2', q: 'merge these' });
+  assert.deepEqual(r.state.undone, ['turn-2']);
+  assert.deepEqual(r.state.pos, { a: { x: 1, y: 1 } });
+  r = applyOps(r.state, [{ op: 'undo' }]);
+  assert.equal(r.undone, true);
+  assert.deepEqual(r.state.pos, {});
+  assert.deepEqual(r.state.undone, ['turn-2'], 'undoing a layer change keeps the undone turns');
+});
+
+test('a turn entry that is no longer the newest turn on the canvas is refused', () => {
+  const c = recordTurn(blankCanvas(), 'turn-1', 'first');
+  const r = applyOps(c, [{ op: 'undo' }], { lastTurn: 'turn-2' });
+  assert.equal(r.undone, false);
+  assert.equal(r.state.history.length, 1, 'nothing was popped');
+});
+
+test('history written before entries had kinds still undoes', () => {
+  const c = canvasOf({
+    pos: { a: { x: 2, y: 2 } },
+    history: [
+      JSON.stringify({ pos: {}, frames: [], links: [], unlinks: [], notes: [], removed: [], removedQ: [] }),
+    ] as never,
+  });
+  assert.deepEqual(c.history, [{ kind: 'layer', snap: c.history[0].snap }]);
+  assert.deepEqual(applyOps(c, [{ op: 'undo' }]).state.pos, {});
 });

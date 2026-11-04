@@ -4,7 +4,6 @@ import { state, node, N } from './state.js';
 import { loadTree, renderLayers } from './layers.js';
 import { renderSpine, loadCanvas } from './nav.js';
 import { renderNodes, renderSel } from './canvas.js';
-import { userOp } from './ops.js';
 
 // cc asked the person something (AskUserQuestion): a card with the options
 export function showQuestion(ev) {
@@ -78,7 +77,7 @@ function afterAnswer(ev, before, landing) {
       pos[n.id] = { x: landing.x, y: landing.y + i * 260 };
       after.pos[n.id] = pos[n.id];
     });
-    userOp({ op: 'move', pos }, true);
+    api(`/api/canvas/${state.cur}`, { op: 'move', pos, quiet: true, noHistory: true }).catch(() => {});
     renderNodes();
   }
   const linked = after.links.length - before.links;

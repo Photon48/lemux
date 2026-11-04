@@ -69,6 +69,7 @@ export const SendBody = z.object({
   picked: z.array(z.string()).default([]),
   at: point.nullable().default(null),
   from: z.string().nullable().default(null),
+  instruction: z.string().default(''), // plumbing for a fixed action (Merge): sent to cc, never shown as the question
 });
 export type Scope = z.infer<typeof SendBody>['scope'];
 export const BranchBody = z.object({ parent: id, node: id, question: z.string().default('') });

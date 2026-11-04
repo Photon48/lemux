@@ -1,6 +1,13 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { replayCanvas, turns, cleanUserText, carried, lastAssistantText } from '../server/transcript.js';
+import {
+  replayCanvas,
+  turns,
+  cleanUserText,
+  carried,
+  lastAssistantText,
+  resumePointBefore,
+} from '../server/transcript.js';
 import { writeTranscript, fence } from './helpers.js';
 import * as fsSync from 'node:fs';
 
@@ -202,4 +209,31 @@ test('turns are cached per file and refreshed when the file grows', () => {
   const again = turns(f);
   assert.notEqual(again, first);
   assert.equal(again.length, 3);
+});
+
+test('an undone turn is skipped by replay, and the next question continues from just before it', () => {
+  const f = writeTranscript([
+    { type: 'user', text: 'one' },
+    { type: 'assistant', text: fence([{ op: 'add', id: 'a', kind: 'pic', cap: 'A' }]) },
+    { type: 'user', text: 'merge' },
+    {
+      type: 'assistant',
+      text: fence([
+        { op: 'add', id: 'ab', kind: 'pic', cap: 'AB' },
+        { op: 'remove', id: 'a' },
+      ]),
+    },
+  ]);
+  assert.deepEqual(
+    replayCanvas(f).nodes.map((n) => n.id),
+    ['ab']
+  );
+  const undone = new Set(['u2']);
+  assert.deepEqual(
+    replayCanvas(f, 0, [], undone).nodes.map((n) => n.id),
+    ['a']
+  );
+  assert.equal(resumePointBefore(f, undone), 'u1', 'the entry just before the undone turn');
+  assert.equal(resumePointBefore(f, new Set(['u0'])), null, 'the first turn has nothing before it');
+  assert.equal(resumePointBefore(f, new Set(['never'])), undefined, 'nothing undone on the chain');
 });

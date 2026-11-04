@@ -235,9 +235,20 @@ $('#z-out').onclick = () => zoomTo(Math.max(ZOOM_MIN, state.view.k / 1.2));
 $('#z-reset').onclick = () => zoomTo(1);
 
 // ---------- the right-click menu ----------
-// Merge is a question with the picked nodes as its subject; cc combines them and removes the parts.
-const MERGE_ASK =
-  'Merge the picked nodes into one: add a node that carries what matters from each, then remove the parts.';
+// Merge: exactly the picked nodes, named, and nothing else. The question the
+// canvas shows is short; the instruction rides along unseen.
+function mergeAsk() {
+  const ns = [...state.sel].map(cnode).filter(Boolean);
+  const ids = ns.map((n) => n.id);
+  const name = (n) => `“${n.q.slice(0, 30)}${n.q.length > 30 ? '…' : ''}”`;
+  return {
+    text: `Merge ${ns.map(name).join(' + ')}`,
+    instruction:
+      `Merge exactly these nodes and no others: ${ids.join(', ')}. Add one node that carries what matters from each ` +
+      `(from: "${ids[0]}"), then remove only ${ids.join(', ')}. If other nodes follow from one of them, give that remove ` +
+      `a "rewireTo" of the new node. Leave every other node, its links and what it follows from untouched.`,
+  };
+}
 export function menu(x, y, kind, w) {
   $$('.menu').forEach((m) => m.remove());
   const m = h('div', { class: 'menu', style: `left:${x}px;top:${y}px` });
@@ -258,7 +269,7 @@ export function menu(x, y, kind, w) {
                 },
               ]
             : null,
-          state.sel.size >= 2 ? ['Merge', () => send({ text: MERGE_ASK })] : null,
+          state.sel.size >= 2 ? ['Merge', () => send(mergeAsk())] : null,
           null,
           ['Delete', deleteSel],
         ]
@@ -322,7 +333,13 @@ export async function doUndo() {
   if (!state.cur) return;
   try {
     const r = await api(`/api/canvas/${state.cur}`, { op: 'undo' });
-    toast(r.undone ? 'Undone' : 'Nothing to undo');
+    toast(
+      r.turn
+        ? `Undone: cc's answer to “${r.turn.q.slice(0, 40)}${r.turn.q.length > 40 ? '…' : ''}”`
+        : r.undone
+          ? 'Undone'
+          : 'Nothing to undo'
+    );
   } catch (e) {
     toast(e.message);
   }

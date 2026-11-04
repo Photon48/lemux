@@ -342,7 +342,13 @@ export type Replay = {
 const CANVAS_FENCE = /```canvas[^\n]*\n([\s\S]*?)```/;
 
 // seed: nodes the canvas starts with (a dive's origin), so updates and links can land on them
-export function replayCanvas(file: string, since = 0, seed: CNode[] = []): Replay {
+// undone: turns the person took back; they stay in the transcript until the next question leaves them behind
+export function replayCanvas(
+  file: string,
+  since = 0,
+  seed: CNode[] = [],
+  undone: ReadonlySet<string> = new Set()
+): Replay {
   const nodes: CNode[] = seed.map((n) => ({ ...n }));
   const links: CLink[] = [];
   const said: Replay['said'] = [];
@@ -353,6 +359,7 @@ export function replayCanvas(file: string, since = 0, seed: CNode[] = []): Repla
   for (let i = 0; i < t.length; i++) {
     if (t[i].role !== 'user') continue;
     if (since && t[i].ts && Date.parse(t[i].ts!) / 1000 < since) continue;
+    if (undone.has(t[i].uuid)) continue;
     const q = textOf(t[i].blocks).join(' ').replace(/\s+/g, ' ').trim();
     if (!q) continue;
     said.push({ who: 'you', text: q, key: t[i].uuid });
@@ -472,6 +479,16 @@ export function replayCanvas(file: string, since = 0, seed: CNode[] = []): Repla
     turnsOut.push({ key: t[i].uuid, q, ops });
   }
   return { nodes, links, said, turns: turnsOut };
+}
+
+// Where the next question continues from after the person undid the last
+// turn or turns: the chain entry just before the earliest undone turn still on
+// the chain. undefined: nothing undone is on the chain, resume plainly. null:
+// the undone turn was the first one, there is nothing to continue from.
+export function resumePointBefore(file: string, undone: ReadonlySet<string>): string | null | undefined {
+  for (const r of chain(file))
+    if (r.type === 'user' && r.uuid && undone.has(r.uuid)) return r.parentUuid ?? null;
+  return undefined;
 }
 
 function listDir(d: string): string[] {

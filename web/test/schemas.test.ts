@@ -33,7 +33,15 @@ test('a canvas post with a wrong shape is refused', () => {
 
 test('send fills defaults and forgives a bad scope', () => {
   const b = SendBody.parse({ sid: 's', text: 'hi', scope: 'everything' });
-  assert.deepEqual(b, { sid: 's', text: 'hi', scope: 'last', picked: [], at: null, from: null });
+  assert.deepEqual(b, {
+    sid: 's',
+    text: 'hi',
+    scope: 'last',
+    picked: [],
+    at: null,
+    from: null,
+    instruction: '',
+  });
   assert.throws(() => SendBody.parse({ text: 'hi' }), ZodError);
 });
 

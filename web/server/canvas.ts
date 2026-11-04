@@ -23,8 +23,14 @@ export type CanvasState = {
   notes: UserNode[];
   removed: string[]; // cc nodes the person deleted (the taste signal)
   removedQ: string[]; // their captions, for the reminder
-  history: string[]; // undo stack of JSON snapshots of this state
+  history: HistoryEntry[]; // the undo stack, newest last: the person's changes and cc's turns alike
+  undone: string[]; // turns (user message uuids) the person undid: hidden from the canvas, left behind by the next question
 };
+
+// What one undo takes back: a change of the person's own, or a whole turn of
+// cc's. Each carries a snapshot of the layer as it was before.
+export type HistoryEntry =
+  { kind: 'layer'; snap: string } | { kind: 'turn'; key: string; q: string; snap: string };
 
 export type CanvasOp =
   | { op: 'move'; pos: Record<string, Point> }
@@ -49,6 +55,8 @@ export type CanvasOp =
   | { op: 'restore'; id: string }
   | { op: 'undo' };
 
+const snapshot = (c: CanvasState) => JSON.stringify({ ...c, history: [], undone: [] });
+
 export const HISTORY_LIMIT = 40;
 export const REMOVED_CAPTIONS_KEPT = 10;
 
@@ -62,12 +70,24 @@ export function blankCanvas(): CanvasState {
     removed: [],
     removedQ: [],
     history: [],
+    undone: [],
   };
 }
 
-// A stored state may predate a field; fill what is missing.
+// A stored state may predate a field; fill what is missing. History entries
+// were bare snapshot strings once.
 export function canvasOf(stored: Partial<CanvasState> | undefined): CanvasState {
-  return { ...blankCanvas(), ...(stored || {}) };
+  const c = { ...blankCanvas(), ...(stored || {}) };
+  c.history = c.history.map((e) => (typeof e === 'string' ? { kind: 'layer', snap: e } : e));
+  return c;
+}
+
+// cc answered: the turn goes on the undo stack with the layer as it was before.
+export function recordTurn(state: CanvasState, key: string, q: string): CanvasState {
+  const c = structuredClone(state);
+  c.history.push({ kind: 'turn', key, q, snap: snapshot(state) });
+  if (c.history.length > HISTORY_LIMIT) c.history.shift();
+  return c;
 }
 
 export const collapse = (s: string) =>
@@ -82,27 +102,41 @@ const samePair = (l: { a: string; b: string }, a: string, b: string) =>
 export type ApplyOptions = {
   noHistory?: boolean; // a quiet change (a drag in progress) that undo should not step through
   newId?: () => string; // injectable for tests
+  lastTurn?: string; // the newest turn still on the canvas; a turn entry for any other cannot be undone
 };
-export type ApplyResult = { state: CanvasState; changed: boolean; undone?: boolean };
+export type ApplyResult = {
+  state: CanvasState;
+  changed: boolean;
+  undone?: boolean;
+  turn?: { key: string; q: string }; // set when the undo took back one of cc's turns
+};
 
 // Apply ops in order to a copy of the state. An undo op restores the previous
 // snapshot and ends the batch; otherwise one snapshot is pushed for the batch.
 export function applyOps(state: CanvasState, ops: CanvasOp[], opts: ApplyOptions = {}): ApplyResult {
   const c = structuredClone(state);
   const newId = opts.newId ?? (() => Math.random().toString(36).slice(2, 10));
-  const snap = JSON.stringify({ ...c, history: [] });
+  const snap = snapshot(c);
   let changed = false;
   for (const o of ops) {
     if (o.op === 'undo') {
       const prev = c.history.pop();
       if (!prev) return { state: c, changed: false, undone: false };
-      const restored = JSON.parse(prev) as Omit<CanvasState, 'history'>;
-      return { state: { ...restored, history: c.history }, changed: true, undone: true };
+      if (prev.kind === 'turn' && opts.lastTurn !== undefined && prev.key !== opts.lastTurn)
+        return { state, changed: false, undone: false }; // the stack is out of step with the transcript
+      const restored = JSON.parse(prev.snap) as Omit<CanvasState, 'history' | 'undone'>;
+      const undone = prev.kind === 'turn' ? [...new Set([...c.undone, prev.key])] : c.undone;
+      return {
+        state: { ...restored, history: c.history, undone },
+        changed: true,
+        undone: true,
+        ...(prev.kind === 'turn' ? { turn: { key: prev.key, q: prev.q } } : {}),
+      };
     }
     changed = applyOne(c, o, newId) || changed;
   }
   if (changed && !opts.noHistory) {
-    c.history.push(snap);
+    c.history.push({ kind: 'layer', snap });
     if (c.history.length > HISTORY_LIMIT) c.history.shift();
   }
   return { state: c, changed };

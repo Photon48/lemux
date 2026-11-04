@@ -50,7 +50,15 @@ export async function send(opt = {}) {
   autosize();
   scopeVisible();
   try {
-    await api('/api/send', { sid: state.cur, text, scope: state.mscope, picked, at: opt.at || null, from });
+    await api('/api/send', {
+      sid: state.cur,
+      text,
+      scope: state.mscope,
+      picked,
+      at: opt.at || null,
+      from,
+      instruction: opt.instruction || '',
+    });
     state.sel.clear();
     renderSel();
   } catch (e) {

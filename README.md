@@ -49,11 +49,11 @@ Digest as often as you like; the chain just gets longer.
 
 ---
 
-| Keys | |
-|---|---|
-| `prefix + B` | branch on the text you copied |
+| Keys         |                                                                                            |
+| ------------ | ------------------------------------------------------------------------------------------ |
+| `prefix + B` | branch on the text you copied                                                              |
 | `prefix + T` | tree — `enter` jump · `ctrl-d` digest · `tab` archives · `ctrl-r` rename · `ctrl-x` delete |
-| `prefix + X` | delete this branch + subtree |
+| `prefix + X` | delete this branch + subtree                                                               |
 
 <details>
 <summary><b>In the browser</b></summary>
@@ -70,7 +70,7 @@ cd web && npm install && npm start     # → http://localhost:4321
 ```
 
 - **Canvases** are the sessions of a project, nested as they were branched.
-  *+ new* opens an empty canvas; the first question draws its first nodes.
+  _+ new_ opens an empty canvas; the first question draws its first nodes.
 - **Ask** from the bar, or pick a spot with the Ask tool and the answer lands
   there, or pull the ● on a node out into space to ask from it. Pick nodes
   first and the question is about them; cc gets their full source.
@@ -80,9 +80,11 @@ cd web && npm install && npm start     # → http://localhost:4321
 - **Yours:** notes (titled, editable, read by cc when you ask), frames (named,
   movable, resizable), images and files dropped in (saved under the project's
   `.lemux/files`), links drawn between nodes, positions. Pick two or more
-  nodes and right-click for *Merge*: cc combines them into one and removes
+  nodes and right-click for _Merge_: cc combines them into one and removes
   the parts. Delete is the taste signal: cc is told what you removed.
-- **Find** searches every canvas in the project. Undo covers your own changes.
+- **Find** searches every canvas in the project. **Undo** takes back anything:
+  your own changes and cc's answers alike. Undoing an answer also takes the
+  conversation back to before it, so the next question continues from there.
 - Two fingers drag to pan, pinch to zoom; Select is the default tool, Pan is
   on the rail.
 
@@ -130,7 +132,7 @@ branchable with zero ceremony.
 Text is the whole rule: any content block that isn't prose is dropped, images
 included. What survives is what you'd get by reading the conversation back.
 
-A transcript is a *tree*, not a list — retries, edited messages and `/clear`
+A transcript is a _tree_, not a list — retries, edited messages and `/clear`
 leave abandoned branches in the file. Digest walks `parentUuid` back from the
 newest leaf and keeps only that chain. On a real session that dropped 33% of
 records as dead ends.
@@ -138,11 +140,11 @@ records as dead ends.
 Measured on an 11.2 MB session by resuming each and reading the API's own
 token usage:
 
-| | tokens loaded |
-|---|---|
-| the original | 498,140 |
-| its digest | 58,910 |
-| empty session, same repo (system prompt, tools, MCP, CLAUDE.md) | 24,003 |
+|                                                                 | tokens loaded |
+| --------------------------------------------------------------- | ------------- |
+| the original                                                    | 498,140       |
+| its digest                                                      | 58,910        |
+| empty session, same repo (system prompt, tools, MCP, CLAUDE.md) | 24,003        |
 
 So the entire conversation is ~35k tokens; the other 460k was tool traffic and
 screenshots. The popup shows your real numbers before writing anything, and
