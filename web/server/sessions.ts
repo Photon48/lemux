@@ -4,6 +4,7 @@ import {
   query,
   type Query,
   type SDKAssistantMessage,
+  type HookJSONOutput,
   type PermissionResult,
   type PermissionUpdate,
 } from '@anthropic-ai/claude-agent-sdk';
@@ -127,30 +128,56 @@ export async function run(o: RunOpts): Promise<void> {
   if (live.has(o.sid)) throw new Error('session is busy');
   const pending = new Map<string, Pending>();
 
-  const canUseTool = async (
-    toolName: string,
-    input: Record<string, unknown>,
-    opts: { suggestions?: PermissionUpdate[] }
-  ): Promise<PermissionResult> => {
+  // cc asking the person something. AskUserQuestion stops here until the page
+  // answers; the answers go back in as the tool's input. With bypassPermissions
+  // the SDK never consults canUseTool, so this is a PreToolUse hook.
+  const askPerson = (input: Record<string, unknown>, signal: AbortSignal): Promise<HookJSONOutput> => {
     const reqId = `p${++reqCounter}`;
-    const suggestions = opts.suggestions ?? [];
     setState(o.sid, 'waiting');
     return new Promise<PermissionResult>((resolve) => {
-      pending.set(reqId, { resolve, tool: toolName, input, suggestions });
+      pending.set(reqId, { resolve, tool: 'AskUserQuestion', input, suggestions: [] });
+      signal.addEventListener('abort', () => resolve({ behavior: 'deny', message: 'The session stopped' }), {
+        once: true,
+      });
       emit({
         type: 'permission',
         sid: o.sid,
         reqId,
-        tool: toolName,
+        tool: 'AskUserQuestion',
         input,
-        suggestions,
-        canAlways: suggestions.length > 0,
+        suggestions: [],
+        canAlways: false,
       });
-    }).finally(() => {
-      pending.delete(reqId);
-      emit({ type: 'permission_resolved', sid: o.sid, reqId });
-      if (live.has(o.sid)) setState(o.sid, 'busy');
-    });
+    })
+      .finally(() => {
+        pending.delete(reqId);
+        emit({ type: 'permission_resolved', sid: o.sid, reqId });
+        if (live.has(o.sid)) setState(o.sid, 'busy');
+      })
+      .then((r) => ({
+        hookSpecificOutput: {
+          hookEventName: 'PreToolUse' as const,
+          ...(r.behavior === 'allow'
+            ? { permissionDecision: 'allow' as const, updatedInput: r.updatedInput }
+            : { permissionDecision: 'deny' as const, permissionDecisionReason: r.message }),
+        },
+      }));
+  };
+  const toolInput = (v: unknown): Record<string, unknown> =>
+    typeof v === 'object' && v !== null ? (v as Record<string, unknown>) : {};
+  // Declaring a permission callback is what makes the CLI offer AskUserQuestion
+  // at all in a non-interactive session; with bypassPermissions it is consulted
+  // for nothing else. If it is consulted, it asks the same way the hook does.
+  const canUseTool = async (toolName: string, input: Record<string, unknown>): Promise<PermissionResult> => {
+    if (toolName !== 'AskUserQuestion') return { behavior: 'allow', updatedInput: input };
+    const out = await askPerson(input, new AbortController().signal);
+    const d =
+      'hookSpecificOutput' in out && out.hookSpecificOutput?.hookEventName === 'PreToolUse'
+        ? out.hookSpecificOutput
+        : undefined;
+    return d?.permissionDecision === 'allow'
+      ? { behavior: 'allow', updatedInput: d.updatedInput ?? input }
+      : { behavior: 'deny', message: d?.permissionDecisionReason || 'The person declined' };
   };
 
   const q = query({
@@ -176,6 +203,17 @@ export async function run(o: RunOpts): Promise<void> {
       permissionMode: 'bypassPermissions',
       allowDangerouslySkipPermissions: true,
       hooks: {
+        PreToolUse: [
+          {
+            matcher: 'AskUserQuestion',
+            hooks: [
+              (input, _toolUseId, { signal }) =>
+                input.hook_event_name === 'PreToolUse'
+                  ? askPerson(toolInput(input.tool_input), signal)
+                  : Promise.resolve({}),
+            ],
+          },
+        ],
         UserPromptSubmit: [
           {
             hooks: [
