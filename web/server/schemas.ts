@@ -44,8 +44,6 @@ export const CanvasOpSchema: z.ZodType<CanvasOp> = z.discriminatedUnion('op', [
     q: z.string().optional(),
   }),
   z.object({ op: z.literal('restore'), id }),
-  z.object({ op: z.literal('fold'), id, on: z.boolean() }),
-  z.object({ op: z.literal('aside'), id, on: z.boolean() }),
   z.object({ op: z.literal('undo') }),
 ]);
 

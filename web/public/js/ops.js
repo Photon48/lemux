@@ -1,6 +1,6 @@
 // The person's own changes to the canvas, sent to the server as ops.
-import { $, $$, api, toast } from './dom.js';
-import { state, cnode, widthOf, N } from './state.js';
+import { $$, api, toast } from './dom.js';
+import { state, cnode, N } from './state.js';
 import { loadCanvas, go } from './nav.js';
 import { loadTree } from './layers.js';
 import { renderSel, doorsFor } from './canvas.js';
@@ -81,24 +81,3 @@ export async function diveInto(n) {
     toast(e.message);
   }
 }
-
-// the bar that appears over a selection
-$('#a-bin').onclick = deleteSel;
-$('#a-x').onclick = () => {
-  state.sel.clear();
-  renderSel();
-};
-$('#a-ask').onclick = () => $('#in').focus();
-$('#a-frame').onclick = () => {
-  const ns = [...state.sel].map(cnode).filter(Boolean);
-  if (!ns.length) return;
-  const ps = ns.map((n) => state.cv.pos[n.id]);
-  const x = Math.min(...ps.map((p) => p.x)) - 20;
-  const y = Math.min(...ps.map((p) => p.y)) - 24;
-  const w = Math.max(...ns.map((n, i) => ps[i].x + widthOf(n))) - x + 20;
-  const hh = Math.max(...ps.map((p) => p.y + 170)) - y + 20;
-  userOp({ op: 'frame', frame: { id: 'f-' + Date.now(), x, y, w, h: hh, lbl: 'section' } }).then(
-    nameNewFrame
-  );
-  state.sel.clear();
-};

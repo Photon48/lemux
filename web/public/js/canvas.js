@@ -42,7 +42,7 @@ function nodeEl(n) {
   const cv = state.cv;
   const p = cv.pos[n.id] || { x: 60, y: 60 };
   const d = h('div', {
-    class: `node ${n.kind}${state.sel.has(n.id) ? ' sel' : ''}${cv.folded.includes(n.id) ? ' folded' : ''}${cv.aside.includes(n.id) ? ' aside' : ''}${doorsFor(n.id).length ? ' has-portal' : ''}`,
+    class: `node ${n.kind}${state.sel.has(n.id) ? ' sel' : ''}${doorsFor(n.id).length ? ' has-portal' : ''}`,
     'data-id': n.id,
     style: `left:${p.x}px;top:${p.y}px`,
   });
@@ -58,15 +58,6 @@ function nodeEl(n) {
   );
   d.append(
     h('div', { class: 'grip' }),
-    h('span', {
-      class: 'fold',
-      title: 'fold',
-      text: cv.folded.includes(n.id) ? '▸' : '▾',
-      onmousedown: (e) => {
-        e.stopPropagation();
-        userOp({ op: 'fold', id: n.id, on: !cv.folded.includes(n.id) });
-      },
-    }),
     h(
       'span',
       {
@@ -235,34 +226,11 @@ function dragNodes(d, cv, e) {
       const pos = {};
       for (const [id] of start) pos[id] = cv.pos[id];
       userOp({ op: 'move', pos }, true);
-      dropIntoZones();
       renderMini();
     }
   };
   window.addEventListener('mousemove', mv);
   window.addEventListener('mouseup', up);
-}
-
-// a node dropped into a frame named later/parked/someday is set aside
-const LATER = /later|parked|someday/i;
-function dropIntoZones() {
-  const cv = state.cv;
-  for (const id of state.sel) {
-    const p = cv.pos[id];
-    if (!p) continue;
-    for (const f of cv.frames)
-      if (
-        LATER.test(f.lbl) &&
-        p.x > f.x &&
-        p.y > f.y &&
-        p.x < f.x + f.w &&
-        p.y < f.y + f.h &&
-        !cv.aside.includes(id)
-      ) {
-        userOp({ op: 'aside', id, on: true });
-        toast('Set aside');
-      }
-  }
 }
 
 // the back of a picture: its words, or, for a picture drawn before words were
@@ -309,19 +277,17 @@ function flipCard(d) {
 }
 
 function frameEl(f, cv) {
-  const role = LATER.test(f.lbl) ? 'later' : '';
   const el = h(
     'div',
     {
-      class: `frame${role ? ' zone-' + role : ''}`,
+      class: 'frame',
       'data-id': f.id,
       style: `left:${f.x}px;top:${f.y}px;width:${f.w}px;height:${f.h}px`,
     },
     h(
       'span',
       { class: 'lbl' },
-      h('span', { class: 'name', contenteditable: 'true', spellcheck: 'false', text: f.lbl }),
-      role === 'later' ? h('span', { class: 'role' }, '· sets aside') : null
+      h('span', { class: 'name', contenteditable: 'true', spellcheck: 'false', text: f.lbl })
     ),
     h('span', { class: 'grip', title: 'resize' }),
     h('span', { class: 'del', title: 'delete frame' }, '✕')
@@ -570,10 +536,6 @@ export function drawEdges() {
 export function renderSel() {
   $$('.node').forEach((el) => el.classList.toggle('sel', state.sel.has(el.dataset.id)));
   const names = [...state.sel].map(cnode).filter(Boolean);
-  const bar = $('#acts');
-  bar.classList.toggle('hid', !names.length);
-  $('#act-t').textContent = names.length > 1 ? `${names.length} picked` : names[0] ? names[0].q : '';
-  $('#a-frame').style.display = names.length > 1 ? '' : 'none';
   const sc = $('#scope');
   sc.className = 'scope' + (names.length ? ' on' : '');
   sc.replaceChildren(

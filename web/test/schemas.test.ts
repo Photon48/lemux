@@ -17,7 +17,7 @@ test('a canvas post is one op with flags beside it, or a batch', () => {
     quiet: true,
   });
   const batch = parseCanvasPost({
-    ops: [{ op: 'undo' }, { op: 'fold', id: 'a', on: true }],
+    ops: [{ op: 'undo' }, { op: 'restore', id: 'a' }],
     noHistory: true,
   });
   assert.equal(batch.ops.length, 2);
@@ -27,7 +27,7 @@ test('a canvas post is one op with flags beside it, or a batch', () => {
 test('a canvas post with a wrong shape is refused', () => {
   assert.throws(() => parseCanvasPost({ op: 'move', pos: { a: { x: '1', y: 2 } } }), ZodError);
   assert.throws(() => parseCanvasPost({ op: 'explode' }), ZodError);
-  assert.throws(() => parseCanvasPost({ op: 'fold', id: 'a' }), ZodError);
+  assert.throws(() => parseCanvasPost({ op: 'restore' }), ZodError);
   assert.throws(() => parseCanvasPost('nope'), ZodError);
 });
 

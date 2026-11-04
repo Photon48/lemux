@@ -20,7 +20,7 @@ Operations:
 - add — a new node. id: short kebab-case, unique on the canvas. kind: "pic" (art: one SVG) or "text" (text only, for judgement, trade-offs, honest talk). cap: one sentence under the picture, the conclusion. from: the id of the node this follows from (the picked node, or the node it answers), or null.
 - Every picture has a back, and the back is required: text, the same idea in plain words for someone who would rather read than look, 30 to 80 words, plain prose, no markup. A pic add without text is incomplete. The person turns the card over to read it, so it must stand on its own: say what the picture shows, the numbers in it, and what follows. When the person says they still don't get something, you choose: rewrite the back of that node, redraw its picture, add more nodes with their own words, or add a text node. All of these are update or add operations.
 - update — change a node in place: {"op":"update","id":…, "art"|"text"|"cap"…}. Use it when the question is about an existing node, or new facts change one. Never add a near-duplicate of a node that exists.
-- remove — {"op":"remove","id":…}. Only when asked, or when a node is now wrong or folded into another.
+- remove — {"op":"remove","id":…}. Only when asked, or when a node is now wrong or merged into another.
 - link / unlink — {"op":"link","a":…,"b":…,"lbl":"same spar"} draws a labelled relation between two nodes; unlink removes it.
 - Combining: add the combined node, then remove the parts. Splitting: add the parts, then remove the whole.
 

@@ -177,7 +177,7 @@ input[type='text'] {
 }
 .layer {
   display: grid;
-  grid-template-columns: 26px 1fr auto;
+  grid-template-columns: 1fr auto;
   align-items: center;
   gap: 8px;
   padding: 5px 6px;
@@ -190,26 +190,6 @@ input[type='text'] {
 }
 .layer.open {
   background: var(--lamp-soft);
-}
-.layer .sq {
-  width: 26px;
-  height: 20px;
-  border: 1px solid var(--line-2);
-  border-radius: 4px;
-  position: relative;
-}
-.layer .sq i {
-  position: absolute;
-  width: 5px;
-  height: 4px;
-  background: var(--ink-3);
-  border-radius: 1px;
-}
-.layer.open .sq {
-  border-color: var(--lamp);
-}
-.layer.open .sq i {
-  background: var(--lamp);
 }
 .layer .t {
   font: 500 13px var(--body);
@@ -235,14 +215,21 @@ input[type='text'] {
 .layer .m b.error {
   color: var(--bad);
 }
+.layer.d1,
+.layer.d2,
+.layer.d3 {
+  border-left: 1px solid var(--line-2);
+  border-radius: 0 8px 8px 0;
+  padding-left: 10px;
+}
 .layer.d1 {
-  margin-left: 18px;
+  margin-left: 14px;
 }
 .layer.d2 {
-  margin-left: 36px;
+  margin-left: 28px;
 }
 .layer.d3 {
-  margin-left: 54px;
+  margin-left: 42px;
 }
 .layer .acts {
   display: none;
@@ -287,17 +274,6 @@ input[type='text'] {
 .older .pick div:hover {
   background: var(--bench-2);
   color: var(--ink);
-}
-.truth {
-  padding: 10px 14px 12px;
-  border-top: 1px solid var(--line);
-  font-size: 11.5px;
-  color: var(--ink-3);
-  line-height: 1.45;
-}
-.truth b {
-  color: var(--ink-2);
-  font-weight: 500;
 }
 .rename-input {
   font: inherit;
@@ -358,16 +334,6 @@ input[type='text'] {
 }
 .spine .sp {
   flex: 1;
-}
-.spine .k {
-  font-size: 11.5px;
-  color: var(--ink-3);
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
-}
-.spine .k b {
-  color: var(--lamp);
 }
 .spine .up {
   color: #1a1c1f;
@@ -526,9 +492,6 @@ input[type='text'] {
 .frame.moving {
   border-color: var(--lamp);
 }
-.frame.zone-later {
-  border-color: #5a5444;
-}
 .frame .lbl {
   position: absolute;
   left: 12px;
@@ -552,12 +515,6 @@ input[type='text'] {
 .frame .lbl .name:focus {
   color: var(--ink);
   background: var(--bench-2);
-}
-.frame .lbl .role {
-  color: var(--lamp);
-  margin-left: 6px;
-  text-transform: none;
-  letter-spacing: 0;
 }
 .frame .grip {
   position: absolute;
@@ -625,12 +582,6 @@ input[type='text'] {
   box-shadow: 0 14px 30px rgba(0, 0, 0, 0.35);
 }
 .node.drawing,
-.node.aside {
-  border-style: dashed;
-}
-.node.aside {
-  opacity: 0.7;
-}
 .node.text {
   width: 300px;
 }
@@ -736,32 +687,6 @@ input[type='text'] {
   content: '▍';
   color: var(--lamp);
   animation: pulse 0.9s infinite;
-}
-.node .fold {
-  position: absolute;
-  right: 10px;
-  top: 9px;
-  color: var(--ink-3);
-  font-size: 11px;
-  cursor: pointer;
-}
-.node .fold:hover {
-  color: var(--ink);
-}
-.node.folded {
-  width: auto;
-  max-width: 300px;
-  padding: 8px 32px 8px 12px;
-}
-.node.folded iframe,
-.node.folded .cap,
-.node.folded .words,
-.node.folded img,
-.node.folded .portal {
-  display: none;
-}
-.node.folded .eye {
-  margin: 0;
 }
 .node .thread {
   position: absolute;
@@ -1106,45 +1031,6 @@ input[type='text'] {
   color: var(--ink);
   background: var(--bench-2);
 }
-.bar-acts {
-  position: fixed;
-  left: 50%;
-  transform: translateX(-50%);
-  bottom: 132px;
-  z-index: 9;
-  display: flex;
-  align-items: center;
-  gap: 4px;
-  background: var(--ink);
-  color: var(--bg);
-  border-radius: 10px;
-  padding: 5px 6px 5px 12px;
-  box-shadow: 0 10px 30px rgba(0, 0, 0, 0.4);
-  font-size: 13px;
-  animation: land 0.16s ease-out;
-}
-.bar-acts.hid {
-  display: none;
-}
-.bar-acts b {
-  font-weight: 600;
-  max-width: 240px;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-  margin-right: 4px;
-}
-.bar-acts button {
-  border-radius: 7px;
-  padding: 4px 9px;
-  color: var(--bg);
-}
-.bar-acts button:hover {
-  background: rgba(0, 0, 0, 0.12);
-}
-.bar-acts .x {
-  opacity: 0.6;
-}
 
 /* ---- cards, ask bar, drawer ---- */
 #cards {
@@ -1440,10 +1326,6 @@ input[type='text'] {
   bottom: 10px;
   right: auto;
   left: 14px;
-}
-.node.folded .face,
-.node.folded .flip {
-  display: none;
 }
 
 /* ---- in-place questions: open a folder, confirm a delete ---- */

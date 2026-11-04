@@ -78,10 +78,10 @@ cd web && npm install && npm start     # → http://localhost:4321
   behind it and its own canvas, starting from that node. The node becomes a
   portal; the parent never changes.
 - **Yours:** notes (titled, editable, read by cc when you ask), frames (named,
-  movable, resizable; one named *later* sets aside what you drop in it),
-  images and files dropped in (saved under the project's `.lemux/files`),
-  links drawn between nodes, positions, folds. Delete is the taste signal: cc
-  is told what you removed.
+  movable, resizable), images and files dropped in (saved under the project's
+  `.lemux/files`), links drawn between nodes, positions. Pick two or more
+  nodes and right-click for *Merge*: cc combines them into one and removes
+  the parts. Delete is the taste signal: cc is told what you removed.
 - **Find** searches every canvas in the project. Undo covers your own changes.
 - Two fingers drag to pan, pinch to zoom; Select is the default tool, Pan is
   on the rail.

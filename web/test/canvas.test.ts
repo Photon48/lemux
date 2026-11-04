@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { applyOps, blankCanvas, canvasOf, HISTORY_LIMIT, type CanvasOp } from '../server/canvas.js';
+import { applyOps, blankCanvas, canvasOf, HISTORY_LIMIT } from '../server/canvas.js';
 
 const ids = () => {
   let i = 0;
@@ -117,20 +117,4 @@ test('remove: notes vanish, cc nodes are remembered with their captions, restore
   assert.deepEqual(c.removedQ, ['Only the long span clears the line.']);
   c = applyOps(c, [{ op: 'restore', id: 'wing' }]).state;
   assert.deepEqual(c.removed, []);
-});
-
-test('fold and aside toggle without duplicates', () => {
-  const ops: CanvasOp[] = [
-    { op: 'fold', id: 'a', on: true },
-    { op: 'fold', id: 'a', on: true },
-    { op: 'aside', id: 'b', on: true },
-  ];
-  let c = applyOps(blankCanvas(), ops).state;
-  assert.deepEqual(c.folded, ['a']);
-  assert.deepEqual(c.aside, ['b']);
-  c = applyOps(c, [
-    { op: 'fold', id: 'a', on: false },
-    { op: 'aside', id: 'b', on: false },
-  ]).state;
-  assert.deepEqual([c.folded, c.aside], [[], []]);
 });

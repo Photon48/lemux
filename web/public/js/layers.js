@@ -92,20 +92,17 @@ export async function loadTree() {
   }
 }
 
-const stateLabel = (n, depth, kids) =>
-  n.state === 'busy'
-    ? h('b', {}, 'drawing')
-    : n.state === 'waiting'
-      ? h('b', {}, 'needs you')
-      : n.state === 'done'
-        ? h('b', { class: 'done' }, 'finished while you were away')
-        : n.state === 'error'
-          ? h('b', { class: 'error' }, 'error')
-          : depth
-            ? `inside ${node(n.parent)?.name || ''}`
-            : kids.length
-              ? `${kids.length} dive${kids.length > 1 ? 's' : ''}`
-              : '';
+// only a state worth knowing gets a second line; nesting says the rest
+const STATE_LABEL = {
+  busy: ['drawing', ''],
+  waiting: ['needs you', ''],
+  done: ['finished while you were away', 'done'],
+  error: ['error', 'error'],
+};
+const stateLabel = (n) => {
+  const l = STATE_LABEL[n.state];
+  return l ? h('div', { class: 'm' }, h('b', { class: l[1] }, l[0])) : null;
+};
 
 export function renderLayers() {
   const el = $('#layers');
@@ -123,19 +120,7 @@ export function renderLayers() {
         title: n.diverge || '',
         onclick: () => go(n.id),
       },
-      h(
-        'div',
-        { class: 'sq' },
-        [0, 1, 2, 3].map((i) =>
-          h('i', { style: `left:${4 + (i % 2) * 9}px;top:${3 + Math.floor(i / 2) * 7}px` })
-        )
-      ),
-      h(
-        'div',
-        {},
-        h('div', { class: 't' }, n.name || '(unnamed)'),
-        h('div', { class: 'm' }, stateLabel(n, d, kids))
-      ),
+      h('div', {}, h('div', { class: 't' }, n.name || '(unnamed)'), stateLabel(n)),
       h(
         'div',
         { class: 'acts' },
@@ -174,7 +159,6 @@ export function renderLayers() {
       h(
         'div',
         { class: 'layer open' },
-        h('div', { class: 'sq' }),
         h('div', {}, h('div', { class: 't' }, state.fresh.name), h('div', { class: 'm' }, 'ask to open it'))
       )
     );

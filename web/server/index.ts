@@ -212,8 +212,6 @@ function fullCanvas(n: Node) {
     pos,
     frames: c.frames,
     notes: c.notes,
-    folded: c.folded,
-    aside: c.aside,
     doors,
     said: rep.said,
     turns: rep.turns,
@@ -359,7 +357,7 @@ async function api(req: http.IncomingMessage, res: http.ServerResponse, url: URL
     S.acknowledge(n.id);
     return json(res, 200, { node: viewNode(n), ...fullCanvas(n), pending: S.pendingPermissions(n.id) });
   }
-  // the person's changes: positions, frames, links, notes, removals, folds, asides; undo
+  // the person's changes: positions, frames, links, notes, removals; undo
   if (req.method === 'POST' && (mm = m(/^\/api\/canvas\/([^/]+)$/))) {
     const n = getNode(mm[1]);
     if (!n) return json(res, 404, { error: 'unknown session' });

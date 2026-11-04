@@ -23,8 +23,6 @@ export type CanvasState = {
   notes: UserNode[];
   removed: string[]; // cc nodes the person deleted (the taste signal)
   removedQ: string[]; // their captions, for the reminder
-  folded: string[];
-  aside: string[];
   history: string[]; // undo stack of JSON snapshots of this state
 };
 
@@ -49,8 +47,6 @@ export type CanvasOp =
   | { op: 'unnote'; id: string }
   | { op: 'remove'; ids?: string[]; id?: string; q?: string }
   | { op: 'restore'; id: string }
-  | { op: 'fold'; id: string; on: boolean }
-  | { op: 'aside'; id: string; on: boolean }
   | { op: 'undo' };
 
 export const HISTORY_LIMIT = 40;
@@ -65,8 +61,6 @@ export function blankCanvas(): CanvasState {
     notes: [],
     removed: [],
     removedQ: [],
-    folded: [],
-    aside: [],
     history: [],
   };
 }
@@ -182,12 +176,6 @@ function applyOne(c: CanvasState, o: Exclude<CanvasOp, { op: 'undo' }>, newId: (
     }
     case 'restore':
       c.removed = c.removed.filter((id) => id !== o.id);
-      return true;
-    case 'fold':
-      c.folded = o.on ? [...new Set([...c.folded, o.id])] : c.folded.filter((id) => id !== o.id);
-      return true;
-    case 'aside':
-      c.aside = o.on ? [...new Set([...c.aside, o.id])] : c.aside.filter((id) => id !== o.id);
       return true;
   }
 }

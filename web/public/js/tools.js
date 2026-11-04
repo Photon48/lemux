@@ -3,7 +3,7 @@ import { $, $$, h, api, toast } from './dom.js';
 import { state, cnode, allNodes, widthOf, vp, world } from './state.js';
 import { go } from './nav.js';
 import { userOp, addNote, deleteSel, diveInto, nameNewFrame } from './ops.js';
-import { askHere } from './ask.js';
+import { askHere, send } from './ask.js';
 import { renderSel, drawEdges, applyView, renderMini } from './canvas.js';
 
 const MODE_HINT = {
@@ -91,7 +91,7 @@ vp.addEventListener(
       setMode(null);
       await userOp({ op: 'frame', frame: { id: 'f-' + Date.now(), ...f, lbl: 'section' } });
       nameNewFrame();
-      toast('Name it · “later” sets aside what you drop in');
+      toast('Name it');
     };
     window.addEventListener('mousemove', mv);
     window.addEventListener('mouseup', up);
@@ -235,6 +235,9 @@ $('#z-out').onclick = () => zoomTo(Math.max(ZOOM_MIN, state.view.k / 1.2));
 $('#z-reset').onclick = () => zoomTo(1);
 
 // ---------- the right-click menu ----------
+// Merge is a question with the picked nodes as its subject; cc combines them and removes the parts.
+const MERGE_ASK =
+  'Merge the picked nodes into one: add a node that carries what matters from each, then remove the parts.';
 export function menu(x, y, kind, w) {
   $$('.menu').forEach((m) => m.remove());
   const m = h('div', { class: 'menu', style: `left:${x}px;top:${y}px` });
@@ -255,12 +258,7 @@ export function menu(x, y, kind, w) {
                 },
               ]
             : null,
-          one
-            ? ['Set aside', () => userOp({ op: 'aside', id: one.id, on: !state.cv.aside.includes(one.id) })]
-            : null,
-          one
-            ? ['Fold', () => userOp({ op: 'fold', id: one.id, on: !state.cv.folded.includes(one.id) })]
-            : null,
+          state.sel.size >= 2 ? ['Merge', () => send({ text: MERGE_ASK })] : null,
           null,
           ['Delete', deleteSel],
         ]
